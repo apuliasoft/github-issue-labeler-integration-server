@@ -1,0 +1,8 @@
+[DEFAULT]
+# Ban hosts for one hour:
+bantime = 3600
+banaction = iptables-multiport
+
+[sshd]
+enabled = true
+maxretry = 3

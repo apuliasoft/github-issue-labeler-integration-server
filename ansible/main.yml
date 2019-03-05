@@ -1,0 +1,132 @@
+---
+- hosts: web
+  remote_user: ansible
+  become: yes
+  vars:
+    www_dir: '/usr/share/nginx/html'
+    sock_dir: '/run/uwsgi'
+    log_dir: '/var/log/uwsgi'
+
+  tasks:
+  - name: Install iptables
+    package:
+      name: iptables
+      state: present
+  
+  - name: Configure firewall rules
+    iptables:
+      chain: "{{ item.I }}"
+      protocol: "{{ item.p }}"
+      destination_port: "{{ item.dport }}"
+      jump: "{{ item.j }}"
+    with_items:
+    - { I: 'INPUT', p: 'tcp', dport: 22, j: 'ACCEPT' }
+    - { I: 'INPUT', p: 'tcp', dport: 80, j: 'ACCEPT' }
+    - { I: 'INPUT', p: 'tcp', dport: 443, j: 'ACCEPT' }
+  
+  - name: Make iptables rules persistent on Debian
+    package: 
+      name: iptables-persistent
+      state: present
+    when: ansible_os_family == "Debian"
+  
+  - name: Make iptables rules persistent on RH
+    package: 
+      name: iptables-services
+      state: present
+    when: ansible_os_family == "RedHat"
+  
+  
+  - name: Install fail2ban
+    package:
+      name: fail2ban
+      state: present
+  
+  - name: Configure fail2ban
+    copy:
+      src: ../files/jail.local
+      dest: /etc/fail2ban/jail.local
+      owner: root
+      group: root
+      mode: 0644
+  
+  
+  - name: Install nginx
+    package:
+      name: ['epel-release', 'nginx']
+      state: present
+  
+  - name: Start nginx
+    systemd:
+      enabled: yes
+      name: nginx
+      state: started
+  
+  - name: Create empty index at root level
+    copy: 
+      content: "simple api for issue classification"
+      dest: "{{www_dir}}/index.html"
+  
+  
+  - name: Install pip and development tools
+    package:
+      name: ['python-pip', 'python-devel', 'gcc']
+      state: present
+      
+  - name: Install virtualenv
+    pip:
+      name: virtualenv
+  
+  # TODO Load project from git?
+  - name: Copy project api files
+    copy:
+      src: ../files/app
+      dest: "{{www_dir}}"
+      owner: nginx
+      group: nginx
+  
+  - name: Install flask and uwsgi in virtualenv
+    pip: 
+      requirements: ../files/requirements.txt
+      virtualenv: "{{www_dir}}/api/venv"
+  
+  - name: Copy uWSGI ini
+    template:
+      src: ../templates/api.ini.j2
+      dest: "{{www_dir}}/api_uwsgi.ini"
+  
+  - name: Setup uWSGI service
+    template:
+      src: ../templates/api.service.j2
+      dest: /etc/systemd/system/api_uwsgi.service
+  
+  - name: Create uWSGI folders
+    file:
+      path: "{{ log_dir }}"
+      state: directory
+      owner: nginx
+      group: nginx
+  
+  - name: Start uWSGI service on boot
+    systemd:
+      name: api_uwsgi
+      state: started
+      enabled: yes
+  
+  
+  - name: Configure nginx host
+    template:
+      src: ../templates/api.nginx.conf.j2
+      dest: /etc/nginx/conf.d/api.conf
+      owner: root
+      group: root
+      mode: 0644
+  
+  - name: Validate nginx conf
+    command: nginx -t
+    changed_when: false
+  
+  - name: Reload nginx
+    service: 
+      name: nginx
+      state: reloaded

@@ -1,0 +1,14 @@
+[Unit]
+Description=uWSGI instance to serve api
+After=network.target
+
+[Service]
+User=nginx
+Group=nginx
+RuntimeDirectory=uwsgi
+WorkingDirectory={{ www_dir }}/api
+Environment="PATH={{ www_dir }}/api/venv/bin"
+ExecStart={{ www_dir }}/api/venv/bin/uwsgi --ini {{www_dir}}/api_uwsgi.ini
+
+[Install]
+WantedBy=multi-user.target

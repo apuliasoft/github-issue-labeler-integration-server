@@ -1,0 +1,15 @@
+[uwsgi]
+mount = /api=wsgi.py
+manage-script-name = true
+callable = api
+
+master = true
+processes = 5
+
+socket = {{ sock_dir }}/app_uwsgi.sock
+chmod-socket = 660
+vacuum = true
+
+die-on-term = true
+
+logto = {{ log_dir }}/%n.log
