@@ -1,2 +1,3 @@
-# Integration Service
-
+# Integration Service for OpenReq classifier
+This is a simple IS for interfacing with [OpenReq](https://github.com/OpenReqEU/requirements-classifier) requirements classifier.
+Once launched locally or deployed remotely, it let you ask for classifing issues of a GIT repository...
