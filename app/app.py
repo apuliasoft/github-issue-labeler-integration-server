@@ -17,12 +17,18 @@ git = GitApp(
   os.path.join(os.path.dirname(__file__), "private-key.pem")
 )
 
+
 def authorized(f):
   @wraps(f)
   def decorator(*args, **kwargs):
-    #TODO check for revoked access_token call https://api.github.com/user
-    if 'access_token' not in session:
-      return redirect(git.authorizeUrl(url_for('auth', _external=True) + request.path[1:]))
+    try:
+      # check for revoked access_token
+      git.getUser(session['access_token'])
+    except Exception:
+      return jsonify({
+        'message': "Unauthorized request",
+        'next': git.authorizeUrl(url_for('auth', _external=True) + request.path[1:])
+      }),401
     
     return f(session['access_token'], *args, **kwargs)  
   return decorator
@@ -157,11 +163,11 @@ def issues(repo):
 def login(token):
   return jsonify(git.getUser(token))
 
-@api.route("/test")
+@api.route("/test/<path:repo>")
 @authorized
-def test(token):
-  repo = request.args['repo']
-  return jsonify(git.isInstalled(repo))
+def test(token, repo):
+  issues = git.getIssues(repo)
+  return jsonify(issues)
 
 
 
