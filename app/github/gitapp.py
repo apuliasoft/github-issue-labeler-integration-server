@@ -12,7 +12,7 @@ __version__ = '1.0.0'
 
 class GitError(Exception):
   """ 
-    Simple handler for GitHub errors managment
+    Simple handler for GitHub errors management
   """
   def __init__(self, message="", response=None):
     if message == "":
@@ -25,17 +25,19 @@ class GitError(Exception):
   def __str__(self):
     return  self.message
 
+
 class GitApp:
   
   API_ENDPOINT = 'https://api.github.com/'
   BASE_ENDPOINT = 'https://github.com/'
   AUTH_ENDPOINT = BASE_ENDPOINT + 'login/oauth/'
   
-  def __init__(self, APP_ID, CLIENT_ID, CLIENT_SECRET, priv_key):
+  def __init__(self, APP_ID, CLIENT_ID, CLIENT_SECRET, priv_key, PERSONAL_ACCESS_TOKEN=None):
     self.APP_ID = APP_ID
     self.CLIENT_ID = CLIENT_ID
     self.CLIENT_SECRET = CLIENT_SECRET
-    self.priv_key = priv_key  
+    self.priv_key = priv_key
+    self.PERSONAL_ACCESS_TOKEN = PERSONAL_ACCESS_TOKEN
   
   
   def _request(self, method, endpoint, resource, params = {}, headers = {}, collect_all = False, func = lambda x : x):
@@ -63,11 +65,15 @@ class GitApp:
       items = response.json()
     except ValueError:
       items = dict(parse_qsl(response.content))
-      
+    
+    # DEBUG limit to first 3 call to avoid rate limit but give enough data to compute
+    k=0
+    
     try:
       # https://developer.github.com/v3/#pagination && https://developer.github.com/v3/guides/traversing-with-pagination/
       if collect_all:
-        while 'next' in response.links.keys():
+        while 'next' in response.links.keys() and k<3:
+          k += 1
           response = requests.get(response.links['next']['url'])
           items.extend(response.json())
       
@@ -96,6 +102,12 @@ class GitApp:
     }
     
     return jwt.encode(payload, key=priv_rsakey, algorithm='RS256')
+  
+  @property
+  def installationAccessToken(self, installation_id):
+    # WORKON https://developer.github.com/apps/building-github-apps/authenticating-with-github-apps/#authenticating-as-an-installation
+    r = self._request('POST', self.API_ENDPOINT, ('app/installations/{installation_id}/access_tokens', {'installation_id':installation_id}), headers = self.jwtHeader)
+    return r
   
   @property
   def jwtHeader(self):
@@ -151,7 +163,7 @@ class GitApp:
         return true/false if the app is installed in the repository
     """
     try:
-      self._request('GET', self.API_ENDPOINT, ( 'repos/{repo}/installation', { 'repo': repo } ), headers = self.jwtHeader)
+      self._request('GET', self.API_ENDPOINT, ('repos/{repo}/installation', { 'repo': repo }), headers = self.jwtHeader)
       return True
     except GitError: #404
       return False
@@ -160,18 +172,24 @@ class GitApp:
     return self._request('GET', self.API_ENDPOINT, 'user', headers = {'Authorization': 'token ' + token})
     
 
-  def getIssues(self, repo):
-    r_params = {
-      'repo': repo
+  def getIssues(self, repo, token=None):
+    args = {
+      'collect_all': True,
+      'params': {
+        'per_page': 100, 
+        'page': 1, 
+        'state': 'all'
+      }
     }
     
-    params = {
-      'per_page': 100, 
-      'page': 1, 
-      'state': 'all'
-    }
+    # authorized calls get greater rate limit
+    # TODO use installation token
+    if token or self.PERSONAL_ACCESS_TOKEN :
+      args.update({
+        'headers': { 'Authorization': 'token ' + (token or self.PERSONAL_ACCESS_TOKEN) }
+      })
     
-    return self._request('GET', self.API_ENDPOINT, ('repos/{repo}/issues', r_params), params, collect_all = False)
+    return self._request('GET', self.API_ENDPOINT, ('repos/{repo}/issues', { 'repo': repo }), **args)
   
   
   def setLabels(self, issue, labels):
