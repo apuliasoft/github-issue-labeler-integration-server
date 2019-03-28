@@ -5,7 +5,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, redirect, session, url_for
 import os
 from openreq import OpenReq
-from github import GitApp
+from github import GitApp,GitError
 import time
 
 api = Flask(__name__)
@@ -30,7 +30,7 @@ def authorized(f):
     except Exception:
       return jsonify({
         'message': "Unauthorized request",
-        'next': git.authorizeUrl(url_for('auth', _external=True) + request.path[1:])
+        'next': git.authorizeUrl(url_for('auth', _external=True))
       }),401
     
     return f(session['access_token'], *args, **kwargs)  
@@ -153,27 +153,44 @@ def classify(token):
     # check model if exists
     if not opnr.exists(company, property):
       return jsonify({
-        'message': "Train the model before you can use it"
+        'message': "Train the model before you can use it",
+        'next': url_for('train', _external=True) + '?repo=' + repo
       }), 404
     # retrieve issues for repo
     # for each issue call openreq api to classify repo based on model
-    for issue in git.getIssues(repo):
+    requirements = _issuesToRequirements(git.getIssues(repo))
+    reccomandations = opnr.classify(company, property, requirements)
+    
+    for issue in git.getIssues(repo,installation_id):
       labels = opnr.classify(company, property, issue)
       #   write labels for issue
       git.setLabels(issue,labels)
   else:
     return jsonify({
-      'message': "App not installed on this repository"
-    }), 401
+      'message': "App not installed on this repository",
+      'next': git.appPageUrl
+    }), 403
   
   return "OK" # TODO define return form 
+
+
+@api.route("/myModels")
+@authorized
+def mymodels(token):
+  pass
+
+
+@api.route("/isOwner")
+@authorized
+def isOwner(repo):
+  pass
+
 
 @api.route("/webhook")
 def webhook():
   # TODO webhook endpoint
   pass
-  
-  
+
 # test endpoints
 
 @api.route("/limit")
@@ -211,10 +228,24 @@ def exists(token):
 @authorized
 def issues(token):
   repo = request.args['repo']
-
-  #return jsonify(git.getIssues(repo, token))
-  return jsonify(git.getIssues(repo, git.PERSONAL_ACCESS_TOKEN))
+  return jsonify(git.getIssues(repo))
   #return jsonify({'requirements': _issuesToRequirements(git.getIssues(repo))})
+
+@api.route("/cplabels")
+@authorized
+def labels(token):
+  start = time.time()
+  repo_from = request.args['from']
+  repo_to = request.args['to']
+  labels = git.getLabels(repo_from)
+  for label in labels:
+    # labels have to be unique. may be is better to delete existing ones before clone from another repo?
+    try: 
+      git.addLabel({ k:label.get(k,"") for k in ['name','color','description'] }, repo_to)
+    except GitError:
+      pass
+  return jsonify({'message': 'labels copied', 'time': time.time() - start})
+
 
 @api.route("/login")
 @authorized
@@ -231,6 +262,14 @@ def test(token):
   r = opnr.classify(company, property, requirements[0:1])
   return jsonify(r.json())
 
+@api.route('/rmlabels')
+@authorized
+def rmlabels(token):
+  import requests
+  repo = request.args['repo']
+  for label in git.getLabels(repo, token):
+    r=requests.delete('https://api.github.com/repos/'+repo+'/labels/'+label['name'], headers=git.getAuthHeader(token))
+  return jsonify(r.json())
 
 
 @api.errorhandler(404)
