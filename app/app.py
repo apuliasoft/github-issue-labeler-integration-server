@@ -15,9 +15,11 @@ git = GitApp(
   api.config['APP_ID'], 
   api.config['CLIENT_ID'], 
   api.config['CLIENT_SECRET'], 
-  os.path.join(os.path.dirname(__file__), "private-key.pem"),
-  PERSONAL_ACCESS_TOKEN = api.config['PERSONAL_ACCESS_TOKEN'] 
+  os.path.join(os.path.dirname(__file__), "private-key.pem")
 )
+
+if 'PERSONAL_ACCESS_TOKEN' in api.config:
+  git.PERSONAL_ACCESS_TOKEN = api.config['PERSONAL_ACCESS_TOKEN']
 
 opnr = OpenReq(api.config['OPENREQ_BASEURL'])
 
@@ -87,13 +89,19 @@ def install():
   return redirect(git.appPageUrl)
 
 
-def _issuesToRequirements(issues):
-  return [ { 
-    'id': issue['node_id'] + label['node_id'],
-    'reqDomains': "",
-    'requirement_type': label['name'],
-    'text': issue['body']
-  } for issue in issues if 'pull_request' not in issue for label in issue['labels'] ]
+def _issuesToRequirements(issues, isForClassify = False):
+  # requirements don't need 'requirement_type' when for classify 
+  if isForClassify :
+    return [ { 
+      'id': issue['number'],
+      'text': issue['body']
+    } for issue in issues if 'pull_request' not in issue ]
+  else:
+    return [ { 
+      'id': str(issue['number']) + "_" + str(label['id']),
+      'requirement_type': label['name'],
+      'text': issue['body']
+    } for issue in issues if 'pull_request' not in issue for label in issue['labels'] ]
 
 
 @api.route('/train')
@@ -132,6 +140,22 @@ def train(token):
   })
 
 
+def _cplabels(repo_from, repo_to, token=None):
+  start = time.time()
+  # delete existing labels to avoid duplicate errors
+  git.rmLabels(repo_to, token)
+  # get labels list from src repo
+  labels = git.getLabels(repo_from, token)
+  # copy labels to dest repo calling api
+  for label in labels:
+    try: 
+      git.addLabel({ k:label.get(k,"") for k in ['name','color','description'] }, repo_to, token)
+    except GitError:
+      pass
+  
+  return jsonify({'message': 'labels copied', 'time': time.time() - start})
+
+
 @api.route('/classify')
 @authorized
 def classify(token):
@@ -148,30 +172,54 @@ def classify(token):
   repo = request.args['repo']
   model = request.args['model'] 
   company, property = model.split("/")
-  # check repo if user has installed app on
-  if git.isInstalled(repo) :
-    # check model if exists
-    if not opnr.exists(company, property):
-      return jsonify({
-        'message': "Train the model before you can use it",
-        'next': url_for('train', _external=True) + '?repo=' + repo
-      }), 404
-    # retrieve issues for repo
-    # for each issue call openreq api to classify repo based on model
-    requirements = _issuesToRequirements(git.getIssues(repo))
-    reccomandations = opnr.classify(company, property, requirements)
-    
-    for issue in git.getIssues(repo,installation_id):
-      labels = opnr.classify(company, property, issue)
-      #   write labels for issue
-      git.setLabels(issue,labels)
-  else:
+  times = {}
+  
+  # check repo if user has installed app on and get installation token for successive calls to api
+  try:
+    token = git.getInstallationAccessToken(repo)
+  except GitError:
     return jsonify({
       'message': "App not installed on this repository",
       'next': git.appPageUrl
     }), 403
   
-  return "OK" # TODO define return form 
+  # check model if exists
+  if not opnr.exists(company, property):
+    return jsonify({
+      'message': "Train the model before you can use it",
+      'next': url_for('train', _external=True) + '?repo=' + repo
+    }), 404
+  """
+  start = time.time()
+  # copy label from model to repo 
+  _cplabels(model, repo, token)
+  times['cplabels'] = time.time() - start
+  """
+  start = time.time()
+  # retrieve issues for repo and convert to requirements
+  requirements = _issuesToRequirements(git.getIssues(repo, token), isForClassify=True)
+  # call openreq api to classify repo based on model
+  recommendations = opnr.classify(company, property, requirements)
+  times['classification'] = time.time() - start
+  
+  start = time.time()
+  # write labels to issues on repo 
+  """ 
+      HACK: check if is right!!
+      use requirements list instead of issues list for optimization purpose
+      because req[id] = issue[number] 
+      and get label directly from recommandations list pointing directly to item position with same key of requirement
+  """
+  for rec in recommendations:
+    if rec['confidence'] > 50 :
+      git.setLabels(repo, rec['requirement'], [rec['requirement_type']], token)
+  
+  times['issue_update'] = time.time() - start
+  
+  return jsonify({
+    'message': "Repository has been classified.",
+     'time': times
+  })
 
 
 @api.route("/myModels")
@@ -231,21 +279,6 @@ def issues(token):
   return jsonify(git.getIssues(repo))
   #return jsonify({'requirements': _issuesToRequirements(git.getIssues(repo))})
 
-@api.route("/cplabels")
-@authorized
-def labels(token):
-  start = time.time()
-  repo_from = request.args['from']
-  repo_to = request.args['to']
-  labels = git.getLabels(repo_from)
-  for label in labels:
-    # labels have to be unique. may be is better to delete existing ones before clone from another repo?
-    try: 
-      git.addLabel({ k:label.get(k,"") for k in ['name','color','description'] }, repo_to)
-    except GitError:
-      pass
-  return jsonify({'message': 'labels copied', 'time': time.time() - start})
-
 
 @api.route("/login")
 @authorized
@@ -258,18 +291,18 @@ def test(token):
   repo = request.args['repo']
   model = request.args['model'] 
   company, property = model.split("/")
-  requirements = _issuesToRequirements(git.getIssues(repo))
+  requirements = _issuesToRequirements(git.getIssues(repo), isForClassify=True)
   r = opnr.classify(company, property, requirements[0:1])
-  return jsonify(r.json())
+  recc = r.json()['recommendations'][0]
+  git.setLabels(repo, requirements[0]['id'],[recc['requirement_type']])
+  return jsonify(recc['requirement_type'])
 
-@api.route('/rmlabels')
+@api.route('/labels')
 @authorized
-def rmlabels(token):
-  import requests
+def labels(token):
   repo = request.args['repo']
-  for label in git.getLabels(repo, token):
-    r=requests.delete('https://api.github.com/repos/'+repo+'/labels/'+label['name'], headers=git.getAuthHeader(token))
-  return jsonify(r.json())
+  return jsonify(git.rmLabels(repo))
+
 
 
 @api.errorhandler(404)
