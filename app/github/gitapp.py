@@ -2,7 +2,7 @@
 
 from functools import wraps  
 from datetime import datetime, timedelta
-from urllib import urlencode
+from urllib import urlencode, quote
 from urlparse import parse_qsl
 import jwt
 import requests
@@ -28,7 +28,7 @@ class GitError(Exception):
    
   def __str__(self):
     return {
-      'message': self.message,
+      'message': self.message or self.response.headers.get('Status'),
       'headers': self.response.headers,
       'raw': self.response.content
     }
@@ -64,9 +64,13 @@ class GitApp:
       response = requests.get(url, params = params, headers = headers)
     if method == 'POST':
       response = requests.post(url, data = params, headers = headers)
+    if method == 'PUT':
+      response = requests.put(url, data = params, headers = headers)
+    if method == 'DEL':
+      response = requests.delete(url, params = params, headers = headers)
   
-  
-    if response.status_code != requests.codes.ok and response.status_code != requests.codes.created:
+    # may be a between interval is better?
+    if response.status_code != requests.codes.ok and response.status_code != requests.codes.created and response.status_code != requests.codes.no_content:
       raise GitError(response=response)
     
     try:
@@ -74,12 +78,12 @@ class GitApp:
     except ValueError:
       items = dict(parse_qsl(response.content))
     
-    # DEBUG limit to first 3 call to avoid rate limit but give enough data to compute
-    k=0
     
     try:
       # https://developer.github.com/v3/#pagination && https://developer.github.com/v3/guides/traversing-with-pagination/
       if collect_all:
+        # DEBUG limit to first 3 call to avoid rate limit but give enough data to compute
+        k=0
         while 'next' in response.links.keys() and k<3:
           k += 1
           response = requests.get(response.links['next']['url'])
@@ -213,6 +217,7 @@ class GitApp:
     
     return self._request('GET', self.API_ENDPOINT, ('repos/{repo}/issues', { 'repo': repo }), **args)
   
+  
   def getLabels(self, repo, token=None):
     args = {
       'collect_all': True,
@@ -231,13 +236,32 @@ class GitApp:
       'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) )
     }
     
-    return self._request('POST', self.API_ENDPOINT, ('repos/{repo}/labels', { 'repo': repo }), **args)
+    self._request('POST', self.API_ENDPOINT, ('repos/{repo}/labels', { 'repo': repo }), **args)
+
+
+  def rmLabel(self, repo, label_name, token=None):
+    args = {
+      'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) )
+    }
     
-    
-  
-  def setLabels(self, issue, labels):
+    self._request('DEL', self.API_ENDPOINT, ('repos/{repo}/labels/{name}', { 'repo': repo, 'name': quote(label_name) }), **args)
+
+
+  def rmLabels(self, repo, token=None):
+    for label in self.getLabels(repo, token):
+      try:
+        self.rmLabel(repo, label['name'], token)
+      except:
+        raise Exception(label)
+
+
+  def setLabels(self, repo, issue_number, labels, token=None):
     # POST /repos/:owner/:repo/issues/:number/labels
     # PUT to replace labels
-    pass
-  
-  
+    args = {
+      'params': json.dumps(labels),
+      'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) )
+    }
+    
+    self._request('PUT', self.API_ENDPOINT, ('repos/{repo}/issues/{number}/labels', { 'repo': repo, 'number': issue_number }), **args)
+    
