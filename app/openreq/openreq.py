@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import requests
+import json
 
 __version__ = '1.0.0'
 
@@ -29,12 +30,8 @@ class OpenReq:
     try:
       # There isn't a native way to check for model existance 
       # so try to classify empty requirements to see a 200 response
-      response = self.classify(company, property, [])
-      
-      if response.status_code == requests.codes.ok :
-        return True
-      else:
-        return False
+      self.classify(company, property, [])
+      return True
     except Exception:
       return False
   
@@ -45,8 +42,8 @@ class OpenReq:
     }
     
     r = requests.post(self.API_ENDPOINT + 'classify', params = { 'company': company, 'property': property }, json = { 'requirements': requirements })
+    return r.json()['recommendations']
     
-    return r
   
   def train(self, company, property, requirements):
     params = {
