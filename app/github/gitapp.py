@@ -243,16 +243,16 @@ class GitApp:
     args = {
       'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) )
     }
-    
-    self._request('DEL', self.API_ENDPOINT, ('repos/{repo}/labels/{name}', { 'repo': repo, 'name': quote(label_name) }), **args)
+    try:
+      r = self._request('DEL', self.API_ENDPOINT, ('repos/{repo}/labels/{name}', { 'repo': repo, 'name': quote(label_name) }), **args)
+    except:
+        raise GitError("",r)
 
 
   def rmLabels(self, repo, token=None):
     for label in self.getLabels(repo, token):
-      try:
-        self.rmLabel(repo, label['name'], token)
-      except:
-        raise Exception(label)
+      self.rmLabel(repo, label['name'], token)
+      
 
 
   def setLabels(self, repo, issue_number, labels, token=None):

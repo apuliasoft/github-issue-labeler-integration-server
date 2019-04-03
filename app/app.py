@@ -189,12 +189,12 @@ def classify(token):
       'message': "Train the model before you can use it",
       'next': url_for('train', _external=True) + '?repo=' + repo
     }), 404
-  """
+  
   start = time.time()
   # copy label from model to repo 
   _cplabels(model, repo, token)
   times['cplabels'] = time.time() - start
-  """
+  
   start = time.time()
   # retrieve issues for repo and convert to requirements
   requirements = _issuesToRequirements(git.getIssues(repo, token), isForClassify=True)
@@ -301,7 +301,10 @@ def test(token):
 @authorized
 def labels(token):
   repo = request.args['repo']
-  return jsonify(git.rmLabels(repo))
+  p = []
+  for label in git.getLabels(repo):
+    p.append(label['name'])
+  return jsonify(p)
 
 
 
