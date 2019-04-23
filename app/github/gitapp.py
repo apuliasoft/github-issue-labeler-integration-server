@@ -86,12 +86,12 @@ class GitApp:
         k=0
         while 'next' in response.links.keys() and k<3:
           k += 1
-          response = requests.get(response.links['next']['url'])
+          response = requests.get(response.links['next']['url'], headers = headers)
           items.extend(response.json())
       
       return func(items)
     except Exception as e:
-      return response
+      raise Exceptioresponse
   
   @property
   def jwtToken(self):
@@ -243,16 +243,13 @@ class GitApp:
     args = {
       'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) )
     }
-    try:
-      r = self._request('DEL', self.API_ENDPOINT, ('repos/{repo}/labels/{name}', { 'repo': repo, 'name': quote(label_name) }), **args)
-    except:
-        raise GitError("",r)
+    
+    r = self._request('DEL', self.API_ENDPOINT, ('repos/{repo}/labels/{name}', { 'repo': repo, 'name': quote(label_name) }), **args)
 
 
   def rmLabels(self, repo, token=None):
     for label in self.getLabels(repo, token):
       self.rmLabel(repo, label['name'], token)
-      
 
 
   def setLabels(self, repo, issue_number, labels, token=None):
@@ -264,4 +261,3 @@ class GitApp:
     }
     
     self._request('PUT', self.API_ENDPOINT, ('repos/{repo}/issues/{number}/labels', { 'repo': repo, 'number': issue_number }), **args)
-    

@@ -42,7 +42,7 @@ class OpenReq:
     }
     
     r = requests.post(self.API_ENDPOINT + 'classify', params = { 'company': company, 'property': property }, json = { 'requirements': requirements })
-    return r.json()['recommendations']
+    return r.json()
     
   
   def train(self, company, property, requirements):

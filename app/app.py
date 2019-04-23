@@ -140,7 +140,7 @@ def train(token):
   })
 
 
-def _cplabels(repo_from, repo_to, token=None):
+def _cplabels(repo_from, repo_to, token):
   start = time.time()
   # delete existing labels to avoid duplicate errors
   git.rmLabels(repo_to, token)
@@ -293,6 +293,7 @@ def test(token):
   company, property = model.split("/")
   requirements = _issuesToRequirements(git.getIssues(repo), isForClassify=True)
   r = opnr.classify(company, property, requirements[0:1])
+  return jsonify(r)
   recc = r.json()['recommendations'][0]
   git.setLabels(repo, requirements[0]['id'],[recc['requirement_type']])
   return jsonify(recc['requirement_type'])
@@ -301,10 +302,12 @@ def test(token):
 @authorized
 def labels(token):
   repo = request.args['repo']
-  p = []
-  for label in git.getLabels(repo):
-    p.append(label['name'])
-  return jsonify(p)
+  model = request.args['model']
+  token = git.getInstallationAccessToken(repo)
+  #return jsonify(git.getLabels(repo, token))
+  #_cplabels(model, repo, token)
+  git.rmLabels(repo, token)
+  return jsonify(True)
 
 
 
