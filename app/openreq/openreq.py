@@ -42,6 +42,10 @@ class OpenReq:
     }
     
     r = requests.post(self.API_ENDPOINT + 'classify', params = { 'company': company, 'property': property }, json = { 'requirements': requirements })
+    
+    if r.status_code != requests.codes.ok and r.status_code != requests.codes.created and r.status_code != requests.codes.no_content:
+      raise OpenReqError(response=r)
+    
     return r.json()
     
   
