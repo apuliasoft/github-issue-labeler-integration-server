@@ -46,7 +46,7 @@ class OpenReq:
     if r.status_code != requests.codes.ok and r.status_code != requests.codes.created and r.status_code != requests.codes.no_content:
       raise OpenReqError(response=r)
     
-    return r.json()
+    return r.json()['recommendations']
     
   
   def train(self, company, property, requirements):
