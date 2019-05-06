@@ -3,6 +3,7 @@
 
 from functools import wraps  
 from flask import Flask, request, jsonify, redirect, session, url_for
+from werkzeug import exceptions as exc
 import os
 from openreq import OpenReq
 from github import GitApp,GitError
@@ -13,6 +14,14 @@ from sqlalchemy import func
 
 api = Flask(__name__)
 api.config.from_pyfile('config.py', silent=True)
+
+
+class AppNotInstalled(exc.HTTPException):
+  description = "App not installed on this repository"
+
+class ModelNotTrained(exc.HTTPException):
+  description = "Train the model before you can use it"
+
 
 git = GitApp(
   api.config['APP_ID'], 
@@ -29,13 +38,13 @@ opnr = OpenReq(api.config['OPENREQ_BASEURL'])
 db = SQLAlchemy(api)
 
 class Models(db.Model):
-  model = db.Column(db.String(100), primary_key=True)
-  status = db.Column(db.Integer) # 0 training started - 1 trained
+  repo = db.Column(db.String(100), primary_key=True)
+  ready = db.Column(db.Boolean, default=False)
   created = db.Column(db.DateTime, server_default=db.func.now())
   updated = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
   
   def __repr__(self):
-    return '<Model %r in status %d>' % (self.model, self.status)
+    return '<Model %r ready %d>' % (self.name, self.ready)
 
 class Trainings(db.Model):
   username = db.Column(db.String(100), primary_key=True)
@@ -45,10 +54,10 @@ class Trainings(db.Model):
     return '<Model %r associated to user %r>' % (self.model, self.username)
 
 class Classifications(db.Model):
-  username = db.Column(db.String(100), primary_key=True)
+  username = db.Column(db.String(100))
   repo = db.Column(db.String(100), primary_key=True)
   model = db.Column(db.String(100))
-  status = db.Column(db.Integer) # 0 classification started - 1 associated 
+  classified = db.Column(db.Boolean, default=False)
   
   def __repr__(self):
     return '<Classification of %r using model %r for user %r>' % (self.repo, self.model, self.username)
@@ -155,18 +164,22 @@ def train(token):
   
   requirements = []
   # check if repo has been trained calling openreq
-  # check also if a training istance has already issued (with time limit) but not saved in openreq (using local db)
-  model = db.session.query(Models).filter(Models.model==repo).first()
+  # check also if a training istance is in progress (within time limit) but not saved in openreq (using local db)
+  model = db.session.query(Models).filter(Models.repo==repo).first()
   if opnr.exists(company, property):
     # model exists remotely but not match local view
-    if not model or model.status == 0:
-      db.session.merge(Models(model=repo, status=1))
+    if not model or not model.ready:
+      db.session.merge(Models(repo=repo, ready=True))
       db.session.commit()
   else:
     # model not exists but we have locally an attempt (timeout?) to training
-    if not ( model and model.status == 0 and (model.updated - model.created).seconds < 1800 ):
+    if model and not model.ready and (model.updated - model.created).seconds < 1800 :
+      return jsonify({
+        'message': 'Classification in progress from previous call... please wait'
+      }), 201
+    else:
       # set training started in local db
-      db.session.merge(Models(model=repo, status=0))
+      db.session.merge(Models(repo=repo, ready=False))
       db.session.commit()
       # retrieve issues for repo
       issues = git.getIssues(repo)
@@ -174,8 +187,8 @@ def train(token):
       requirements = _issuesToRequirements(issues)
       # call openreq api to train issues retrived
       opnr.train(company, property, requirements)
-      # update model status to trained
-      db.session.query(Models).filter(Models.model==repo).update({'status': 1})
+      # model is ready
+      db.session.query(Models).filter(Models.repo==repo).update({'ready': True})
       db.session.commit() 
   
   try:
@@ -206,52 +219,35 @@ def _cplabels(repo_from, repo_to, token):
       git.addLabel({ k:label.get(k,"") for k in ['name','color','description'] }, repo_to, token)
     except GitError:
       pass
-  
-  return jsonify({'message': 'labels copied', 'time': time.time() - start})
 
 
-@api.route('/classify')
-@authorized
-def classify(token):
-  """
-    Classify a repository using a model trainer from another repository
-    
-    Parameters:
-      repo  (string): a repository in the form owner/repo
-      model (string): a model available on OpenReq server in the form company/property
-    
-    Results:
-      return 200 if everything is OK
-  """
-  repo = request.args['repo']
-  model = request.args['model'] 
+def _classify(repo, model, issues = None, first=False):
   company, property = model.split("/")
   times = {}
   
   # check repo if user has installed app on and get installation token for successive calls to api
   try:
     token = git.getInstallationAccessToken(repo)
+    if not token:
+      raise AppNotInstalled()
   except GitError:
-    return jsonify({
-      'message': "App not installed on this repository",
-      'next': git.appPageUrl
-    }), 403
+    raise AppNotInstalled()
   
   # check model if exists
   if not opnr.exists(company, property):
-    return jsonify({
-      'message': "Train the model before you can use it",
-      'next': url_for('train', _external=True) + '?repo=' + model
-    }), 404
+    raise ModelNotTrained()
+  
+  # copy label from model to repo if this is the first attempt
+  if first :
+    start = time.time() 
+    _cplabels(model, repo, token)
+    times['cplabels'] = time.time() - start
   
   start = time.time()
-  # copy label from model to repo 
-  #_cplabels(model, repo, token)
-  times['cplabels'] = time.time() - start
-  
-  start = time.time()
-  # retrieve issues for repo and convert to requirements
-  requirements = _issuesToRequirements(git.getIssues(repo, token), isForClassify=True)
+  # retrieve issues for repo if not passed and convert to requirements
+  if not issues:
+    issues = git.getIssues(repo, token)
+  requirements = _issuesToRequirements(issues, isForClassify=True)
   # call openreq api to classify repo based on model
   recommendations = opnr.classify(company, property, requirements)
   times['classification'] = time.time() - start
@@ -270,10 +266,43 @@ def classify(token):
   
   times['issue_update'] = time.time() - start
   
-  return jsonify({
-    'message': "Repository has been classified.",
-     'time': times
-  })
+  return times
+
+
+@api.route('/classify')
+@authorized
+def classify(token):
+  """
+    Classify a repository using a model trained from another repository
+    
+    Parameters:
+      repo  (string): a repository in the form owner/repo
+      model (string): a model available on OpenReq server in the form company/property
+    
+    Results:
+      return 200 if everything is OK
+  """
+  repo = request.args['repo']
+  model = request.args['model'] 
+  
+  # check if repo is already classified with that model
+  classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
+  if not classification or classification.model != model:
+    db.session.merge(Classifications(repo=repo, model=model))
+    db.session.commit()
+    times = _classify(repo, model, first=True)
+    # set repo as classified
+    db.session.query(Classifications).filter(Classifications.repo==repo).update({'classified': True})
+    db.session.commit()
+    
+    return jsonify({
+      'message': "Repository has been classified.",
+      'time': times
+    })
+  else:
+    return jsonify({
+      'message': "Repository has been classified already."
+    })
 
 
 @api.route("/myModels")
@@ -290,8 +319,31 @@ def isOwner(repo):
 
 @api.route("/webhook", methods = ['GET','POST'])
 def webhook():
-  # TODO webhook endpoint
-  return "ok"
+  data = request.get_json()
+  # check for incoming issues
+  if 'issue' in data and data['action'] in ['opened', 'edited']:
+    # TODO security?? check data['installation']['id']
+    issue = data['issue']
+    repo = data['repository']['full_name']
+    username = data['sender']['login']
+    # check if repo first classification has done
+    # retrieve model associated to the repo
+    classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
+    if not classification or not classification.classified:
+      return jsonify({
+        'message': "No model associated to this repository or first classification still in progress"
+      }), 404
+    
+    times = _classify(repo, classification.model, [issue])
+    
+    return jsonify({
+      'message': "Issue classified.",
+      'time': times
+    })
+  
+  return jsonify({
+    'message': "nothing to do with this by now"
+  }), 204 # CHECK may be a 501 is more proper
 
 # test endpoints
 @api.route("/initdb")

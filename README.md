@@ -64,3 +64,6 @@ $ docker run -p 5000:5000 -v $(pwd)/app:/app/src is
 
 And you will get a working version running on port 5000 with app folder mounted in /app/src.
 > **Note:** Remove debug flag in app.py for production (you will loose reloading feature on flask).
+
+#### Setup ngrok port forwarding
+https://developer.github.com/webhooks/configuring/#using-ngrok
