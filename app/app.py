@@ -7,6 +7,9 @@ import os
 from openreq import OpenReq
 from github import GitApp,GitError
 import time
+from flask_sqlalchemy import SQLAlchemy
+#from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 
 api = Flask(__name__)
 api.config.from_pyfile('config.py', silent=True)
@@ -22,6 +25,36 @@ if 'PERSONAL_ACCESS_TOKEN' in api.config:
   git.PERSONAL_ACCESS_TOKEN = api.config['PERSONAL_ACCESS_TOKEN']
 
 opnr = OpenReq(api.config['OPENREQ_BASEURL'])
+
+db = SQLAlchemy(api)
+
+class Models(db.Model):
+  model = db.Column(db.String(100), primary_key=True)
+  status = db.Column(db.Integer) # 0 training started - 1 trained
+  created = db.Column(db.DateTime, server_default=db.func.now())
+  updated = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
+  
+  def __repr__(self):
+    return '<Model %r in status %d>' % (self.model, self.status)
+
+class Trainings(db.Model):
+  username = db.Column(db.String(100), primary_key=True)
+  model = db.Column(db.String(100), primary_key=True)
+  
+  def __repr__(self):
+    return '<Model %r associated to user %r>' % (self.model, self.username)
+
+class Classifications(db.Model):
+  username = db.Column(db.String(100), primary_key=True)
+  repo = db.Column(db.String(100), primary_key=True)
+  model = db.Column(db.String(100))
+  status = db.Column(db.Integer) # 0 classification started - 1 associated 
+  
+  def __repr__(self):
+    return '<Classification of %r using model %r for user %r>' % (self.repo, self.model, self.username)
+
+# check if db is created or create
+db.create_all()
 
 def authorized(f):
   @wraps(f)
@@ -120,18 +153,39 @@ def train(token):
   repo = request.args['repo']
   company, property = repo.split("/")
   
-  # check if repo has been trained already
-  if not opnr.exists(company, property):
-    # retrieve issues for repo
-    issues = git.getIssues(repo)
-    # convert github issues to requirement
-    requirements = _issuesToRequirements(issues)
-    # call openreq api to train issues retrived
-    opnr.train(company, property, requirements)
+  requirements = []
+  # check if repo has been trained calling openreq
+  # check also if a training istance has already issued (with time limit) but not saved in openreq (using local db)
+  model = db.session.query(Models).filter(Models.model==repo).first()
+  if opnr.exists(company, property):
+    # model exists remotely but not match local view
+    if not model or model.status == 0:
+      db.session.merge(Models(model=repo, status=1))
+      db.session.commit()
   else:
-    requirements = []
+    # model not exists but we have locally an attempt (timeout?) to training
+    if not ( model and model.status == 0 and (model.updated - model.created).seconds < 1800 ):
+      # set training started in local db
+      db.session.merge(Models(model=repo, status=0))
+      db.session.commit()
+      # retrieve issues for repo
+      issues = git.getIssues(repo)
+      # convert github issues to requirement
+      requirements = _issuesToRequirements(issues)
+      # call openreq api to train issues retrived
+      opnr.train(company, property, requirements)
+      # update model status to trained
+      db.session.query(Models).filter(Models.model==repo).update({'status': 1})
+      db.session.commit() 
   
-  # TODO associate trained model to user
+  try:
+    # associate model to user
+    db.session.merge(Trainings(model=repo, username=session['user_id']))
+    db.session.commit()
+  except Exception as e:
+    return jsonify({
+      'message': e.message
+    }), 500
   
   return jsonify({
     'message': "Model has been trained and associated to your userbase.",
@@ -187,12 +241,12 @@ def classify(token):
   if not opnr.exists(company, property):
     return jsonify({
       'message': "Train the model before you can use it",
-      'next': url_for('train', _external=True) + '?repo=' + repo
+      'next': url_for('train', _external=True) + '?repo=' + model
     }), 404
   
   start = time.time()
   # copy label from model to repo 
-  _cplabels(model, repo, token)
+  #_cplabels(model, repo, token)
   times['cplabels'] = time.time() - start
   
   start = time.time()
@@ -205,10 +259,10 @@ def classify(token):
   start = time.time()
   # write labels to issues on repo 
   """ 
-      HACK: check if is right!!
-      use requirements list instead of issues list for optimization purpose
-      because req[id] = issue[number] 
-      and get label directly from recommandations list pointing directly to item position with same key of requirement
+    HACK: check if is right!!
+    use requirements list instead of issues list for optimization purpose
+    because req[id] = issue[number] 
+    and get label directly from recommandations list pointing directly to item position with same key of requirement
   """
   for rec in recommendations:
     if rec['confidence'] > 50 :
@@ -224,8 +278,8 @@ def classify(token):
 
 @api.route("/myModels")
 @authorized
-def mymodels(token):
-  pass
+def myModels(token):
+  return jsonify([ t.model for t in Trainings.query.filter_by(username=session['user_id'])])
 
 
 @api.route("/isOwner")
@@ -234,13 +288,18 @@ def isOwner(repo):
   pass
 
 
-@api.route("/webhook")
+@api.route("/webhook", methods = ['GET','POST'])
 def webhook():
   # TODO webhook endpoint
-  pass
+  return "ok"
 
 # test endpoints
-
+@api.route("/initdb")
+@authorized
+def initdb(token):
+  db.create_all()
+  
+  
 @api.route("/limit")
 @authorized
 def limit(token):
@@ -288,9 +347,10 @@ def login(token):
 @api.route("/test")
 @authorized
 def test(token):
-  repo = request.args['repo']
+  #repo = request.args['repo']
   model = request.args['model'] 
   company, property = model.split("/")
+  return jsonify(opnr.classify(company, property, []))
   requirements = _issuesToRequirements(git.getIssues(repo), isForClassify=True)
   r = opnr.classify(company, property, requirements[0:1])
   return jsonify(r)
@@ -302,7 +362,9 @@ def test(token):
 @authorized
 def labels(token):
   repo = request.args['repo']
-  model = request.args['model']
+  #model = request.args['model']
+  
+  return jsonify(git.getIssues(repo))
   token = git.getInstallationAccessToken(repo)
   #return jsonify(git.getLabels(repo, token))
   #_cplabels(model, repo, token)
