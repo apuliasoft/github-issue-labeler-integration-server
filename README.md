@@ -67,3 +67,10 @@ And you will get a working version running on port 5000 with app folder mounted 
 
 #### Setup ngrok port forwarding
 https://developer.github.com/webhooks/configuring/#using-ngrok
+
+#### Celery worker
+```
+celery -A app.celery worker -l debug
+```
+> **Note:** If you want to monitor Celery tasks from a web interface install Celery Flower 
+https://nickjanetakis.com/blog/dockerize-a-flask-celery-and-redis-application-with-docker-compose

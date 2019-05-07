@@ -11,6 +11,8 @@ import time
 from flask_sqlalchemy import SQLAlchemy
 #from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
+from celery import Celery
+
 
 api = Flask(__name__)
 api.config.from_pyfile('config.py', silent=True)
@@ -64,6 +66,10 @@ class Classifications(db.Model):
 
 # check if db is created or create
 db.create_all()
+
+
+celery = Celery(api.name, broker=api.config['CELERY_BROKER_URL'])
+celery.conf.update(api.config)
 
 def authorized(f):
   @wraps(f)
@@ -145,11 +151,23 @@ def _issuesToRequirements(issues, isForClassify = False):
       'text': issue['body']
     } for issue in issues if 'pull_request' not in issue for label in issue['labels'] ]
 
+@celery.task
+def _train(repo):
+  company, property = repo.split("/")
+  # retrieve issues for repo
+  issues = git.getIssues(repo)
+  # convert github issues to requirement
+  requirements = _issuesToRequirements(issues)
+  # call openreq api to train issues retrived
+  opnr.train(company, property, requirements)
+  # model is ready
+  db.session.query(Models).filter(Models.repo==repo).update({'ready': True})
+  db.session.commit() 
+
 
 @api.route('/train')
 @authorized
 def train(token):
-  start = time.time()
   """
     Train a model from a GIT repository using OpenReq API
     
@@ -175,21 +193,13 @@ def train(token):
     # model not exists but we have locally an attempt (timeout?) to training
     if model and not model.ready and (model.updated - model.created).seconds < 1800 :
       return jsonify({
-        'message': 'Classification in progress from previous call... please wait'
+        'message': 'Training in progress from previous call... please wait'
       }), 201
     else:
       # set training started in local db
       db.session.merge(Models(repo=repo, ready=False))
       db.session.commit()
-      # retrieve issues for repo
-      issues = git.getIssues(repo)
-      # convert github issues to requirement
-      requirements = _issuesToRequirements(issues)
-      # call openreq api to train issues retrived
-      opnr.train(company, property, requirements)
-      # model is ready
-      db.session.query(Models).filter(Models.repo==repo).update({'ready': True})
-      db.session.commit() 
+      _train.delay(repo)
   
   try:
     # associate model to user
@@ -201,9 +211,7 @@ def train(token):
     }), 500
   
   return jsonify({
-    'message': "Model has been trained and associated to your userbase.",
-    'requirements': len(requirements),
-    'time': time.time() - start
+    'message': "Trained model has been associated to your userbase."
   })
 
 
@@ -220,10 +228,9 @@ def _cplabels(repo_from, repo_to, token):
     except GitError:
       pass
 
-
+@celery.task
 def _classify(repo, model, issues = None, first=False):
   company, property = model.split("/")
-  times = {}
   
   # check repo if user has installed app on and get installation token for successive calls to api
   try:
@@ -241,18 +248,14 @@ def _classify(repo, model, issues = None, first=False):
   if first :
     start = time.time() 
     _cplabels(model, repo, token)
-    times['cplabels'] = time.time() - start
   
-  start = time.time()
   # retrieve issues for repo if not passed and convert to requirements
   if not issues:
     issues = git.getIssues(repo, token)
   requirements = _issuesToRequirements(issues, isForClassify=True)
   # call openreq api to classify repo based on model
   recommendations = opnr.classify(company, property, requirements)
-  times['classification'] = time.time() - start
-  
-  start = time.time()
+    
   # write labels to issues on repo 
   """ 
     HACK: check if is right!!
@@ -264,9 +267,11 @@ def _classify(repo, model, issues = None, first=False):
     if rec['confidence'] > 50 :
       git.setLabels(repo, rec['requirement'], [rec['requirement_type']], token)
   
-  times['issue_update'] = time.time() - start
+   # set repo as classified if on first batch classification
+  if first :
+    db.session.query(Classifications).filter(Classifications.repo==repo).update({'classified': True})
+    db.session.commit()
   
-  return times
 
 
 @api.route('/classify')
@@ -286,18 +291,15 @@ def classify(token):
   model = request.args['model'] 
   
   # check if repo is already classified with that model
+  # XXX check if is good to avoid successive classification on the same model or need check for timeout classification
   classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
   if not classification or classification.model != model:
     db.session.merge(Classifications(repo=repo, model=model))
     db.session.commit()
-    times = _classify(repo, model, first=True)
-    # set repo as classified
-    db.session.query(Classifications).filter(Classifications.repo==repo).update({'classified': True})
-    db.session.commit()
+    _classify.delay(repo, model, first=True)
     
     return jsonify({
-      'message': "Repository has been classified.",
-      'time': times
+      'message': "Classification scheduled successfully."
     })
   else:
     return jsonify({
@@ -325,20 +327,19 @@ def webhook():
     # TODO security?? check data['installation']['id']
     issue = data['issue']
     repo = data['repository']['full_name']
-    username = data['sender']['login']
+    # username = data['sender']['login']
     # check if repo first classification has done
     # retrieve model associated to the repo
     classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
     if not classification or not classification.classified:
       return jsonify({
-        'message': "No model associated to this repository or first classification still in progress"
+        'message': "No model associated to this repository or batch classification still in progress"
       }), 404
     
-    times = _classify(repo, classification.model, [issue])
+    _classify.delay(repo, classification.model, [issue])
     
     return jsonify({
-      'message': "Issue classified.",
-      'time': times
+      'message': "Issue classified."
     })
   
   return jsonify({
@@ -346,11 +347,6 @@ def webhook():
   }), 204 # CHECK may be a 501 is more proper
 
 # test endpoints
-@api.route("/initdb")
-@authorized
-def initdb(token):
-  db.create_all()
-  
   
 @api.route("/limit")
 @authorized
@@ -390,7 +386,6 @@ def issues(token):
   return jsonify(git.getIssues(repo))
   #return jsonify({'requirements': _issuesToRequirements(git.getIssues(repo))})
 
-
 @api.route("/login")
 @authorized
 def login(token):
@@ -399,31 +394,7 @@ def login(token):
 @api.route("/test")
 @authorized
 def test(token):
-  #repo = request.args['repo']
-  model = request.args['model'] 
-  company, property = model.split("/")
-  return jsonify(opnr.classify(company, property, []))
-  requirements = _issuesToRequirements(git.getIssues(repo), isForClassify=True)
-  r = opnr.classify(company, property, requirements[0:1])
-  return jsonify(r)
-  recc = r.json()['recommendations'][0]
-  git.setLabels(repo, requirements[0]['id'],[recc['requirement_type']])
-  return jsonify(recc['requirement_type'])
-
-@api.route('/labels')
-@authorized
-def labels(token):
-  repo = request.args['repo']
-  #model = request.args['model']
-  
-  return jsonify(git.getIssues(repo))
-  token = git.getInstallationAccessToken(repo)
-  #return jsonify(git.getLabels(repo, token))
-  #_cplabels(model, repo, token)
-  git.rmLabels(repo, token)
-  return jsonify(True)
-
-
+  pass
 
 @api.errorhandler(404)
 def error404(error):

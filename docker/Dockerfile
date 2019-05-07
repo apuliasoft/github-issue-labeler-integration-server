@@ -1,16 +1,10 @@
-FROM ubuntu:16.04
+FROM python:3-slim
 
 MAINTAINER Vito Tafuni "vito.tafuni@apuliasoft.com"
 
-RUN apt-get update -y && \
-    apt-get install -y python-pip python-dev
-
-COPY ./ansible/files/requirements.txt /app/requirements.txt
+COPY ./ansible/files/requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
 
 WORKDIR /app
 
-RUN pip install -r requirements.txt
-
-ENTRYPOINT [ "python" ]
-
-CMD [ "src/app.py" ]
+CMD python app.py
