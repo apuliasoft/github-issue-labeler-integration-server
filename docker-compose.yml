@@ -1,0 +1,33 @@
+version: '3'
+
+services:
+  requirement-classifier:
+    image: req-classifier
+    ports:
+     - '9402:9402'
+     - '9403:9403'
+     - '8080:8080'
+  
+  integration-service:
+    image: 'is'
+    command: python app.py
+    ports:
+     - '5000:5000'
+    volumes:
+     - ./app:/app
+    depends_on:
+     - worker
+  
+  worker:
+    image: 'is'
+    command: celery worker -A app.celery -l debug
+    volumes:
+     - ./app:/app
+    depends_on:
+      - redis
+  
+  redis:
+    image: redis
+    ports:
+     - '6379:6379'
+  
