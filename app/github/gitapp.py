@@ -2,8 +2,7 @@
 
 from functools import wraps  
 from datetime import datetime, timedelta
-from urllib import urlencode, quote
-from urlparse import parse_qsl
+from urllib.parse import urlencode, quote, parse_qsl
 import jwt
 import requests
 import json

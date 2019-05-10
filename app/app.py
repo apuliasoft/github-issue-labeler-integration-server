@@ -9,10 +9,10 @@ from openreq import OpenReq
 from github import GitApp,GitError
 import time
 from flask_sqlalchemy import SQLAlchemy
-#from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
 from celery import Celery
-
+import hashlib
+import hmac
 
 api = Flask(__name__)
 api.config.from_pyfile('config.py', silent=True)
@@ -60,6 +60,7 @@ class Classifications(db.Model):
   repo = db.Column(db.String(100), primary_key=True)
   model = db.Column(db.String(100))
   classified = db.Column(db.Boolean, default=False)
+  created = db.Column(db.DateTime, server_default=db.func.now())
   
   def __repr__(self):
     return '<Classification of %r using model %r for user %r>' % (self.repo, self.model, self.username)
@@ -320,27 +321,31 @@ def isOwner(repo):
 
 
 @api.route("/webhook", methods = ['GET','POST'])
-def webhook():
-  data = request.get_json()
-  # check for incoming issues
-  if 'issue' in data and data['action'] in ['opened', 'edited']:
-    # TODO security?? check data['installation']['id']
-    issue = data['issue']
-    repo = data['repository']['full_name']
-    # username = data['sender']['login']
-    # check if repo first classification has done
-    # retrieve model associated to the repo
-    classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
-    if not classification or not classification.classified:
+def webhook(): 
+  # check git signature in payload 
+  signature = hmac.new(bytes(api.config['WEBHOOK_SECRET'], 'latin-1'), request.data, hashlib.sha1).hexdigest()
+  if hmac.compare_digest(str(signature), request.headers['X-Hub-Signature'].split('=')[1]):
+   
+    data = request.get_json()
+    
+    # check for incoming issues
+    if 'issue' in data and data['action'] in ['opened', 'edited']:
+      issue = data['issue']
+      repo = data['repository']['full_name']
+      # username = data['sender']['login']
+      # check if repo first classification has done
+      # retrieve model associated to the repo
+      classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
+      if not classification or not classification.classified:
+        return jsonify({
+          'message': "No model associated to this repository or batch classification still in progress"
+        }), 404
+      
+      _classify.delay(repo, classification.model, [issue])
+      
       return jsonify({
-        'message': "No model associated to this repository or batch classification still in progress"
-      }), 404
-    
-    _classify.delay(repo, classification.model, [issue])
-    
-    return jsonify({
-      'message': "Issue classified."
-    })
+        'message': "Issue classified."
+      })
   
   return jsonify({
     'message': "nothing to do with this by now"
