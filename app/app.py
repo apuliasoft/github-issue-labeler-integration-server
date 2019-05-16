@@ -7,7 +7,7 @@ from werkzeug import exceptions as exc
 import os
 from openreq import OpenReq
 from github import GitApp,GitError
-import time
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
 from celery import Celery
@@ -192,7 +192,7 @@ def train(token):
       db.session.commit()
   else:
     # model not exists but we have locally an attempt (timeout?) to training
-    if model and not model.ready and (model.updated - model.created).seconds < 1800 :
+    if model and not model.ready and (model.updated - datetime.now()).seconds < api.config['TRAINING_TIMEOUT'] :
       return jsonify({
         'message': 'Training in progress from previous call... please wait'
       }), 201
@@ -217,7 +217,6 @@ def train(token):
 
 
 def _cplabels(repo_from, repo_to, token):
-  start = time.time()
   # delete existing labels to avoid duplicate errors
   git.rmLabels(repo_to, token)
   # get labels list from src repo
@@ -247,7 +246,6 @@ def _classify(repo, model, issues = None, first=False):
   
   # copy label from model to repo if this is the first attempt
   if first :
-    start = time.time() 
     _cplabels(model, repo, token)
   
   # retrieve issues for repo if not passed and convert to requirements
@@ -258,14 +256,10 @@ def _classify(repo, model, issues = None, first=False):
   recommendations = opnr.classify(company, property, requirements)
     
   # write labels to issues on repo 
-  """ 
-    HACK: check if is right!!
-    use requirements list instead of issues list for optimization purpose
-    because req[id] = issue[number] 
-    and get label directly from recommandations list pointing directly to item position with same key of requirement
-  """
+  # use requirements list instead of issues one for optimization purpose 
+  # because req[id] = issue[number] and label = requirement_type
   for rec in recommendations:
-    if rec['confidence'] > 50 :
+    if rec['confidence'] > api.config['CONFIDENCE_TRESHOLD'] :
       git.setLabels(repo, rec['requirement'], [rec['requirement_type']], token)
   
    # set repo as classified if on first batch classification
@@ -294,8 +288,8 @@ def classify(token):
   # check if repo is already classified with that model
   # XXX check if is good to avoid successive classification on the same model or need check for timeout classification
   classification = db.session.query(Classifications).filter(Classifications.repo == repo).first()
-  if not classification or classification.model != model:
-    db.session.merge(Classifications(repo=repo, model=model))
+  if not classification or classification.model != model or (classification.started - datetime.now()).seconds >= api.config['CLASSIFICATION_TIMEOUT'] :
+    db.session.merge(Classifications(repo=repo, model=model, started=datetime.now()))
     db.session.commit()
     _classify.delay(repo, model, first=True)
     
@@ -304,7 +298,7 @@ def classify(token):
     })
   else:
     return jsonify({
-      'message': "Repository has been classified already."
+      'message': "Repository has been classified already or classification is still in progress."
     })
 
 
@@ -316,9 +310,13 @@ def myModels(token):
 
 @api.route("/isOwner")
 @authorized
-def isOwner(repo):
-  pass
-
+def isOwner(token):
+  repo = request.args['repo']
+  try:
+    git.getInstallationId(repo)
+    return jsonify(True)
+  except GitError:
+    return jsonify(False)
 
 @api.route("/webhook", methods = ['GET','POST'])
 def webhook(): 
@@ -350,6 +348,9 @@ def webhook():
   return jsonify({
     'message': "nothing to do with this by now"
   }), 204 # CHECK may be a 501 is more proper
+
+
+
 
 # test endpoints
   
@@ -400,6 +401,8 @@ def login(token):
 @authorized
 def test(token):
   pass
+
+
 
 @api.errorhandler(404)
 def error404(error):
