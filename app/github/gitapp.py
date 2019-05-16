@@ -75,7 +75,7 @@ class GitApp:
     try:
       items = response.json()
     except ValueError:
-      items = dict(parse_qsl(response.content))
+      items = dict(parse_qsl(response.content.decode()))
     
     
     try:
@@ -90,7 +90,7 @@ class GitApp:
       
       return func(items)
     except Exception as e:
-      raise Exceptioresponse
+      raise GitError(response=response)
   
   @property
   def jwtToken(self):
@@ -116,7 +116,7 @@ class GitApp:
 
   def getJwtHeader(self):
     return {
-      'Authorization': 'Bearer ' + self.jwtToken, 
+      'Authorization': 'Bearer ' + self.jwtToken.decode(), 
       'Accept': 'application/vnd.github.machine-man-preview+json'
     }
   
