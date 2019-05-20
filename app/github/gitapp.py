@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from functools import wraps  
 from datetime import datetime, timedelta
 from urllib.parse import urlencode, quote, parse_qsl
@@ -39,11 +37,11 @@ class GitApp:
   BASE_ENDPOINT = 'https://github.com/'
   AUTH_ENDPOINT = BASE_ENDPOINT + 'login/oauth/'
   
-  def __init__(self, APP_ID, CLIENT_ID, CLIENT_SECRET, priv_key, PERSONAL_ACCESS_TOKEN=None):
+  def setup(self, APP_ID, CLIENT_ID, CLIENT_SECRET, PRIV_KEY_PATH, PERSONAL_ACCESS_TOKEN=None):
     self.APP_ID = APP_ID
     self.CLIENT_ID = CLIENT_ID
     self.CLIENT_SECRET = CLIENT_SECRET
-    self.priv_key = priv_key
+    self.PRIV_KEY_PATH = PRIV_KEY_PATH
     self.PERSONAL_ACCESS_TOKEN = PERSONAL_ACCESS_TOKEN
   
   
@@ -99,7 +97,7 @@ class GitApp:
       https://developer.github.com/apps/building-github-apps/authenticating-with-github-apps/#authenticating-as-a-github-app
       'private-key.pem' has to be downloaded from app setup page and put in the root folder 
     """
-    with open(self.priv_key, 'r') as rsa_priv_file:
+    with open(self.PRIV_KEY_PATH, 'r') as rsa_priv_file:
       priv_rsakey = rsa_priv_file.read()
     
     payload = {

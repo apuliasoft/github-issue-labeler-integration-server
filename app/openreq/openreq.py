@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import requests
 import json
 
@@ -23,8 +21,8 @@ class OpenReqError(Exception):
 
 class OpenReq:
   
-  def __init__(self, OPENREQ_BASEURL):
-    self.API_ENDPOINT = OPENREQ_BASEURL + '/upc/classifier-component/'
+  def setup(self, BASEURL):
+    self.API_ENDPOINT = BASEURL + '/upc/classifier-component/'
   
   def exists(self, company, property):
     try:
