@@ -5,6 +5,18 @@ from utils import issuesToRequirements, cplabels
 
 @celery.task
 def train(repo):
+  """
+  Asyncronous train task.
+  Retrive issues from input git repository and start a training on OpenReq instance, then save do db.
+  
+  Parameters:
+    repo (string): A repository full name in the format 'owner/name' or 'organization/name'
+  
+  Returns:
+    None
+  
+  """
+  
   company, property = repo.split("/")
   # retrieve issues for repo
   issues = git.getIssues(repo)
@@ -18,23 +30,28 @@ def train(repo):
 
 
 @celery.task
-def classify(repo, model, issues = None, first=False):
+def classify(repo, model, token, issues = None, batch=False):
+  """
+  Asyncronous classify task.
+  Retrive issues from source git repository and start a classification on OpenReq instance.
+  Then update labels in the source repository and save do db.
+  
+  Parameters:
+    repo (string): A repository full name to classify in the format 'owner/name' or 'organization/name'
+    model (string): A repository full name to use as a model in the format 'owner/name' or 'organization/name'
+    token (string): A valid token to get write permission on the repository to classify
+    issues (list): Issues list in the git format
+    batch (boolean): Flag to update db in case of first batch classification process
+  
+  Returns:
+    None
+  
+  """
+  
   company, property = model.split("/")
   
-  # check repo if user has installed app on and get installation token for successive calls to api
-  try:
-    token = git.getInstallationAccessToken(repo)
-    if not token:
-      raise AppNotInstalled()
-  except GitError:
-    raise AppNotInstalled()
-  
-  # check model if exists
-  if not opnr.exists(company, property):
-    raise ModelNotTrained()
-  
-  # copy label from model to repo if this is the first attempt
-  if first :
+  # copy label from model to repo if this is the first batch attempt
+  if batch :
     cplabels(model, repo, token)
   
   # retrieve issues for repo if not passed and convert to requirements
@@ -52,12 +69,6 @@ def classify(repo, model, issues = None, first=False):
       git.setLabels(repo, rec['requirement'], [rec['requirement_type']], token)
   
    # set repo as classified if on first batch classification
-  if first :
+  if batch :
     db.session.query(Classifications).filter(Classifications.repo==repo).update({'classified': True})
     db.session.commit()
-  
-@celery.task
-def test_task(w):
-  db.session.query(Models).filter(Models.repo=="pippo").first()
-  print(w)
-

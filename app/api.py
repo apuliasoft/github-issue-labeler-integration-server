@@ -15,14 +15,11 @@ import hmac
 
 api = Blueprint('api', __name__)
 
-class AppNotInstalled(exc.HTTPException):
-  description = "App not installed on this repository"
-
-class ModelNotTrained(exc.HTTPException):
-  description = "Train the model before you can use it"
-
 
 def authorized(f):
+  """
+  Decorator to ensure that the call is authorized via a valid token
+  """
   @wraps(f)
   def decorator(*args, **kwargs):
     try:
@@ -37,9 +34,14 @@ def authorized(f):
     return f(session['access_token'], *args, **kwargs)  
   return decorator
 
+
 @api.route('/auth/', defaults={'next':'/'})
 @api.route('/auth/<path:next>')
 def auth(next):
+  """
+  Authorization endpoint
+  GitHub app needs this as a callback to return a valid token
+  """
   token = git.getAccessToken(request)
   
   if token:
@@ -62,6 +64,15 @@ def index():
 
 @api.route('/logout')
 def logout():
+  """
+  Logout endpoint to clear session
+  ---
+  tags: 
+    - management
+  responses:
+    200:
+      description: User is no more authenticated
+  """
   session.pop('access_token', None)
   session.pop('user_id', None)
   return redirect(url_for('index'))
@@ -70,13 +81,44 @@ def logout():
 @api.route('/manage')
 def manage():
   """
-    Take user to the app page where he can manage app permissions revokation
+  Takes user to the app page where he can manage app permissions revocation
+  ---
+  tags: 
+    - management
+  responses:
+    200:
+      description: Redirect to app manamente page
   """
   return redirect(git.appManagementUrl)
 
 
-@api.route('/check-installed/<path:repo>')
-def is_app_installed(repo):
+@api.route('/check-installed')
+def is_app_installed():
+  """
+  Check if github app is installed in a specific repository
+  ---
+  tags: 
+    - api
+  parameters:
+    - $ref: "#/parameters/repoParam"
+  responses:
+    200:
+      description: OK
+      schema:
+        type: boolean
+    404:
+      description: Repository not exists
+      schema:
+        id: messages
+  """
+  
+  repo = request.args['repo']
+  
+  if not git.exists(repo):
+    return jsonify({
+      'message': 'Repository to classify not exists'
+    }), 404
+  
   return jsonify(git.isInstalled(repo))
   
 
@@ -84,6 +126,12 @@ def is_app_installed(repo):
 def install():
   """
     Redirect user to the app main page where he can install the app or change configurations
+    ---
+    tags: 
+      - management
+    responses:
+      200:
+        description: Redirect to app installation page
   """
   return redirect(git.appPageUrl)
 
@@ -93,15 +141,30 @@ def install():
 def train(token):
   """
     Train a model from a GIT repository using OpenReq API
-    
-    Parameters:
-      repo  (string): a repository in the form owner/repo
-    
-    Results:
-      return 200 if everything is OK
+    ---
+    tags:
+      - api
+    parameters:
+      - $ref: "#/parameters/repoParam"
+    responses:
+      200:
+        description: OK
+        schema:
+          id: messages
+      201:
+        description: Training already started
+      403:
+        description: Repository not in the format 'owner/name' or 'organization/name'
+      404:
+        description: Repository not exists
   """
   repo = request.args['repo']
-  company, property = repo.split("/")
+  try:
+    company, property = repo.split("/")
+  except ValueError:
+    return jsonify({
+      'message': "Repository not in the format 'owner/name' or 'organization/name'"
+    }), 403
   
   requirements = []
   # check if repo has been trained calling openreq
@@ -119,6 +182,11 @@ def train(token):
         'message': 'Training in progress from previous call... please wait'
       }), 201
     else:
+      # check repository existance before start training async task
+      if not git.exists(repo):
+        return jsonify({
+          'message': 'Repository not exists'
+        }), 404
       # set training started in local db
       db.session.merge(Models(repo=repo, ready=False))
       db.session.commit()
@@ -139,23 +207,70 @@ def train(token):
 
 
 
-
-
 @api.route('/classify')
 @authorized
 def classify(token):
   """
     Classify a repository using a model trained from another repository
-    
-    Parameters:
-      repo  (string): a repository in the form owner/repo
-      model (string): a model available on OpenReq server in the form company/property
-    
-    Results:
-      return 200 if everything is OK
+    ---
+    tags:
+      - api
+    parameters:
+      - name: repo
+        in: query
+        type: string
+        required: true
+        description: Repository to classify in the format 'owner/name' or 'organization/name'
+      - name: model
+        in: query
+        type: string
+        required: true
+        description: Repository to use as a model in the format 'owner/name' or 'organization/name'
+    responses:
+      200:
+        description: OK
+        schema:
+          id: messages
+      403:
+        description: Forbidden
+        schema:
+          id: messages
+      404:
+        description: One of the repositories in input not exists
+        schema:
+          id: messages
   """
   repo = request.args['repo']
   model = request.args['model'] 
+  
+  if not git.exists(repo):
+    return jsonify({
+      'message': 'Repository to classify not exists'
+    }), 404
+        
+  try:
+    company, property = model.split("/")
+  except ValueError:
+    return jsonify({
+      'message': "Repository model not in the format 'owner/name' or 'organization/name'"
+    }), 403
+  
+  # check repo if user has installed app on and get installation token for successive calls to api
+  try:
+    token = git.getInstallationAccessToken(repo)
+    if not token:
+      raise GitError()
+  except GitError:
+    return jsonify({
+      'message': "App not installed on this repository"
+    }), 403
+  
+  # check model if exists
+  if not opnr.exists(company, property):
+    return jsonify({
+      'message': "Train the model before you can use it"
+    }), 403
+  
   
   # check if repo is already classified with that model
   # XXX check if is good to avoid successive classification on the same model or need check for timeout classification
@@ -163,7 +278,7 @@ def classify(token):
   if not classification or classification.model != model or (classification.started - datetime.now()).seconds >= current_app.config['CLASSIFICATION_TIMEOUT'] :
     db.session.merge(Classifications(repo=repo, model=model, started=datetime.now()))
     db.session.commit()
-    tasks.classify.delay(repo, model, first=True)
+    tasks.classify.delay(repo, model, token, batch=True)
     
     return jsonify({
       'message': "Classification scheduled successfully."
@@ -177,21 +292,67 @@ def classify(token):
 @api.route("/myModels")
 @authorized
 def myModels(token):
+  """
+  List trained models associated to current user
+  ---
+  tags:
+    - api
+  responses:
+    200:
+      description: Models list
+      schema:
+        type: array
+        items:
+          type: string
+          description: Repository full name
+          
+  """
   return jsonify([ t.model for t in Trainings.query.filter_by(username=session['user_id'])])
 
 
 @api.route("/isOwner")
 @authorized
 def isOwner(token):
+  """
+  Return true/false if current user own the repository passed in input
+  ---
+  tags:
+    - api
+  responses:
+    200:
+      description: OK
+      schema:
+        type: boolean
+    404:
+      description: Repository not exists
+      schema:
+        id: messages
+  """
+  
   repo = request.args['repo']
+  
+  if not git.exists(repo):
+    return jsonify({
+      'message': 'Repository to classify not exists'
+    }), 404
+    
   try:
     git.getInstallationId(repo)
     return jsonify(True)
   except GitError:
     return jsonify(False)
 
+
+
+
 @api.route("/webhook", methods = ['GET','POST'])
 def webhook(): 
+  """
+  WebHook endpoint
+  No need to call directly
+  Needed by Git as a callback endpoint to receive server side events
+  ---
+  """
   # check git signature in payload 
   signature = hmac.new(bytes(current_app.config['WEBHOOK_SECRET'], 'latin-1'), request.data, hashlib.sha1).hexdigest()
   if hmac.compare_digest(str(signature), request.headers['X-Hub-Signature'].split('=')[1]):
@@ -224,7 +385,7 @@ def webhook():
 
 
 
-# test endpoints
+# test endpoints can be removed when project is ready to production
   
 @api.route("/limit")
 @authorized
@@ -273,7 +434,8 @@ def login(token):
 @api.route("/test")
 @authorized
 def test(token):
-  tasks.test_task.delay('test asincrono ok')
+  repo = request.args['repo']
+  return jsonify(git.exists(repo, token))
   return "testato"
 
 

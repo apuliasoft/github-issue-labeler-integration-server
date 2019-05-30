@@ -1,24 +1,34 @@
 from flask_sqlalchemy import SQLAlchemy
 
+# initialize db interface
 db = SQLAlchemy()
 
 class Models(db.Model):
+  """
+  Class mapping table of repositories used as a model by a classification process
+  """
   repo = db.Column(db.String(100), primary_key=True)
   ready = db.Column(db.Boolean, default=False)
   created = db.Column(db.DateTime, server_default=db.func.now())
   updated = db.Column(db.DateTime, server_default=db.func.now(), server_onupdate=db.func.now())
   
   def __repr__(self):
-    return '<db.Model %r ready %d>' % (self.name, self.ready)
+    return '<Model %r ready %d>' % (self.name, self.ready)
 
 class Trainings(db.Model):
+  """
+  Class mapping table of model repositories associated to git user
+  """
   username = db.Column(db.String(100), primary_key=True)
   model = db.Column(db.String(100), primary_key=True)
   
   def __repr__(self):
-    return '<db.Model %r associated to user %r>' % (self.model, self.username)
+    return '<Model %r associated to user %r>' % (self.model, self.username)
 
 class Classifications(db.Model):
+  """
+  Class mapping table of classification sessions of git repositories and relative models
+  """
   username = db.Column(db.String(100))
   repo = db.Column(db.String(100), primary_key=True)
   model = db.Column(db.String(100))
@@ -26,6 +36,6 @@ class Classifications(db.Model):
   started = db.Column(db.DateTime, server_default=db.func.now())
   
   def __repr__(self):
-    return '<Classification of %r using db.Model %r for user %r>' % (self.repo, self.model, self.username)
+    return '<Classification of %r using model %r for user %r>' % (self.repo, self.model, self.username)
     
     

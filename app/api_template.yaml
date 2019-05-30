@@ -1,0 +1,26 @@
+info:
+  title: Integration Service API
+  description: REST API for classification of git repositories using OpenReq classifier
+  termsOfService: http://me.com/terms
+  version: 0.1
+tags:
+  - name: api
+    description: integration service api endpoints
+  - name: management
+    description: endpoints and shortlink to play with github app
+definitions:
+  messages:
+    properties:
+      message:
+        type: string
+        description: Human readable status message
+      next:
+        type: url
+        description: Url to go in case of pagination or auth errors
+parameters:
+  repoParam:
+    name: repo
+    in: query
+    type: string
+    required: true
+    description: Repository full name in the format 'owner/name' or 'organization/name'

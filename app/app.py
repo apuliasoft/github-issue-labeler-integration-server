@@ -1,19 +1,35 @@
 #!/usr/bin/python
  
 from flask import Flask
+from flasgger import Swagger
+
 from openreq import OpenReq
 from github import GitApp,GitError
 
 from database import db
 from extensions import git, opnr, celery, make_celery
 from api import api
-    
+
+
 # initialize flask app
 app = Flask(__name__)
 app.config.from_pyfile('config.py', silent=True)
 
 # register api endpoints
 app.register_blueprint(api)
+
+# configure swagger to be similar to openreq
+Swagger(app, template_file = 'api_template.yaml', config = {
+  "headers": [
+  ],
+  "specs": [{
+    "endpoint": 'api-docs',
+    "route": '/api-docs'
+  }],
+  "static_url_path": "/swagger_static",
+  "swagger_ui": True,
+  "specs_route": "/swagger-ui.html"
+})
 
 # setup git interface
 git.setup(
@@ -39,8 +55,9 @@ make_celery(app)
 
 
 if __name__ == "__main__":
-  app.run(debug = True, host = '0.0.0.0')
+  app.run()
 else:
+  # when running celery worker a context is needed
   import tasks
   print('*** push app context ***')
   app.app_context().push()
