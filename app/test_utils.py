@@ -4,6 +4,7 @@ from utils import issuesToRequirements, cplabels
 from github import GitError
 
 class TestUtils(unittest.TestCase):
+  
   def test_issuesToRequirements(self):
     # empty issue empty requirements
     self.assertEqual(issuesToRequirements([]), [])
