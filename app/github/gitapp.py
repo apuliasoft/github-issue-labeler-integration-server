@@ -490,26 +490,24 @@ class GitApp:
     except GitError: #404
       return False
   
-  def getUserPermissions(self, repo, username, token=None):
+  def getRepo(self, repo, token=None):
     """
-    Get user permissions on the input repository
-    https://developer.github.com/v3/repos/collaborators/#review-a-users-permission-level
-    
+    Get repository informations
+    https://developer.github.com/v3/repos/#get
+       
     Parameters:
       repo (string): Repository full name in the format 'owner/name' or 'organization/name'
-      user (string): Username to check permissions 
       token (string): Optional valid git token - default: None
     
     Returns:
-      A string representing one of the possible values: admin, write, read, none
+      A repository object as on git documentation
     
     """
     
     args = {
-      'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) or self.PERSONAL_ACCESS_TOKEN ),
-      'func': lambda x:x['permission']
+      'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) or self.PERSONAL_ACCESS_TOKEN )
     }
     
-    return self._request('GET', self.API_ENDPOINT, ('repos/{repo}/collaborators/{username}/permission', { 'repo': repo, 'username': username}), **args, )
+    return self._request('GET', self.API_ENDPOINT, ('repos/{repo}', { 'repo': repo }), **args, )
     
     

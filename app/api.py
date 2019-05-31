@@ -348,7 +348,7 @@ def is_owner(token):
     }), 404
   
   try:
-    return jsonify(git.getUserPermissions(repo, session['user_id'], token) in ['admin','write'])
+    return jsonify(git.getRepo(repo, token)['permissions']['admin'])
   except GitError:
     return jsonify(False)
 
