@@ -7,7 +7,7 @@ from werkzeug import exceptions as exc
 from datetime import datetime
 
 from database import db, Models, Trainings, Classifications
-from extensions import git, opnr
+from extensions import git, GitError, opnr
 import tasks
 
 import hashlib
@@ -28,7 +28,7 @@ def authorized(f):
     except Exception:
       return jsonify({
         'message': "Unauthorized request",
-        'next': git.authorizeUrl(url_for('auth', _external=True))
+        'next': git.authorizeUrl(url_for('api.auth', _external=True))
       }),401
     
     return f(session['access_token'], *args, **kwargs)  
@@ -48,7 +48,7 @@ def auth(next):
     session['access_token'] = token
     user = git.getUser(token)
     session['user_id'] = user['login']
-    return redirect(url_for('index', _external=True) + next)
+    return redirect(url_for('api.index', _external=True) + next)
   else: 
     return jsonify({
       'message': "Invalid authorization"
@@ -58,8 +58,8 @@ def auth(next):
 @api.route("/")
 def index():
   if 'access_token' in session:
-    return "<a href='" + url_for('manage') + "' target='_blank'>Manage access to App</a>"
-  return "Api for issue classification"
+    return jsonify({'message': 'User correclty logged on!', 'username': session['user_id']})
+  return jsonify({'message': 'User not logged, please login to access api.'})
 
 
 @api.route('/logout')
@@ -75,7 +75,7 @@ def logout():
   """
   session.pop('access_token', None)
   session.pop('user_id', None)
-  return redirect(url_for('index'))
+  return redirect(url_for('api.index'))
 
 
 @api.route('/manage')
@@ -91,36 +91,6 @@ def manage():
   """
   return redirect(git.appManagementUrl)
 
-
-@api.route('/check-installed')
-def is_app_installed():
-  """
-  Check if github app is installed in a specific repository
-  ---
-  tags: 
-    - api
-  parameters:
-    - $ref: "#/parameters/repoParam"
-  responses:
-    200:
-      description: OK
-      schema:
-        type: boolean
-    404:
-      description: Repository not exists
-      schema:
-        id: messages
-  """
-  
-  repo = request.args['repo']
-  
-  if not git.exists(repo):
-    return jsonify({
-      'message': 'Repository to classify not exists'
-    }), 404
-  
-  return jsonify(git.isInstalled(repo))
-  
 
 @api.route('/install')
 def install():
@@ -194,7 +164,7 @@ def train(token):
   
   try:
     # associate model to user
-    db.session.merge(Trainings(model=repo, username=session['user_id']))
+    db.session.merge(Trainings(repo=repo, username=session['user_id']))
     db.session.commit()
   except Exception as e:
     return jsonify({
@@ -289,9 +259,9 @@ def classify(token):
     })
 
 
-@api.route("/myModels")
+@api.route("/my-models")
 @authorized
-def myModels(token):
+def my_models(token):
   """
   List trained models associated to current user
   ---
@@ -303,46 +273,84 @@ def myModels(token):
       schema:
         type: array
         items:
-          type: string
+          type: object
+          properties:
+            name:
+              type: string
+            ready:
+              type: boolean
           description: Repository full name
           
   """
-  return jsonify([ t.model for t in Trainings.query.filter_by(username=session['user_id'])])
+  return jsonify([ 
+    { 'name': t.repo, 'ready': t.model.ready } 
+    for t in db.session.query(Trainings).filter_by(username = session['user_id']).join(Models)
+  ])
 
 
-@api.route("/isOwner")
+@api.route('/check-installed')
 @authorized
-def isOwner(token):
+def check_installed(token):
   """
-  Return true/false if current user own the repository passed in input
+  Check if github app is installed in a specific repository
   ---
-  tags:
+  tags: 
     - api
+  parameters:
+    - $ref: "#/parameters/repoParam"
   responses:
     200:
       description: OK
       schema:
         type: boolean
     404:
-      description: Repository not exists
+      description: Invalid repository
       schema:
         id: messages
   """
   
   repo = request.args['repo']
   
-  if not git.exists(repo):
+  if not git.exists(repo, token):
     return jsonify({
-      'message': 'Repository to classify not exists'
+      'message': 'Invalid repository'
     }), 404
-    
+  
+  return jsonify(git.isInstalled(repo))
+
+
+@api.route("/is-owner")
+@authorized
+def is_owner(token):
+  """
+  Return true/false if current user own the repository passed in input
+  ---
+  tags:
+    - api
+  parameters:
+    - $ref: "#/parameters/repoParam"
+  responses:
+    200:
+      description: OK
+      schema:
+        type: boolean
+    404:
+      description: Invalid repository
+      schema:
+        id: messages
+  """
+  
+  repo = request.args['repo']
+  
+  if not git.exists(repo, token):
+    return jsonify({
+      'message': 'Invalid repository'
+    }), 404
+  
   try:
-    git.getInstallationId(repo)
-    return jsonify(True)
+    return jsonify(git.getUserPermissions(repo, session['user_id'], token) in ['admin','write'])
   except GitError:
     return jsonify(False)
-
-
 
 
 @api.route("/webhook", methods = ['GET','POST'])
@@ -407,9 +415,10 @@ def limit(token):
 @authorized
 def myrepos(token):
   import requests
-  r = requests.get('https://api.github.com/app/installation/repositories'.format(username = session['user_id']), headers=git.jwtHeader)
-  return jsonify(r.json())
-  #return jsonify([ x['full_name'] for x in r.json() ])
+  #r = requests.get('https://api.github.com/app/installation/repositories'.format(username = session['user_id']), headers=git.jwtHeader)
+  r = requests.get('https://api.github.com/user/repos', headers=git.getAuthHeader(token))
+  #return jsonify(r.json())
+  return jsonify([ x['full_name'] for x in r.json() ])
 
 @api.route("/exists")
 @authorized
@@ -429,6 +438,11 @@ def issues(token):
 @authorized
 def login(token):
   return jsonify(git.getUser(token))
+
+@api.route("/access_token")
+@authorized
+def access_token(token):
+  return jsonify(session['access_token'])
 
 
 @api.route("/test")

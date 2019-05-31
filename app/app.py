@@ -55,7 +55,7 @@ make_celery(app)
 
 
 if __name__ == "__main__":
-  app.run()
+  app.run(host='0.0.0.0')
 else:
   # when running celery worker a context is needed
   import tasks

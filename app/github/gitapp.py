@@ -24,11 +24,11 @@ class GitError(Exception):
     self.response = response
    
   def __str__(self):
-    return {
+    return json.dumps({
       'message': self.message or self.response.headers.get('Status'),
-      'headers': self.response.headers,
-      'raw': self.response.content
-    }
+      'headers': dict(self.response.headers),
+      'raw': self.response.content.decode()
+    })
 
 
 class GitApp:
@@ -170,7 +170,8 @@ class GitApp:
     """
     if token :
       return { 
-        'Authorization': 'token ' + token
+        'Authorization': 'token ' + token,
+        'Accept': 'application/vnd.github.v3+json'
       }
     else:
       return {}
@@ -488,4 +489,27 @@ class GitApp:
       return True
     except GitError: #404
       return False
+  
+  def getUserPermissions(self, repo, username, token=None):
+    """
+    Get user permissions on the input repository
+    https://developer.github.com/v3/repos/collaborators/#review-a-users-permission-level
+    
+    Parameters:
+      repo (string): Repository full name in the format 'owner/name' or 'organization/name'
+      user (string): Username to check permissions 
+      token (string): Optional valid git token - default: None
+    
+    Returns:
+      A string representing one of the possible values: admin, write, read, none
+    
+    """
+    
+    args = {
+      'headers': self.getAuthHeader( token or self.getInstallationAccessToken(repo) or self.PERSONAL_ACCESS_TOKEN ),
+      'func': lambda x:x['permission']
+    }
+    
+    return self._request('GET', self.API_ENDPOINT, ('repos/{repo}/collaborators/{username}/permission', { 'repo': repo, 'username': username}), **args, )
+    
     

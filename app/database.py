@@ -20,7 +20,9 @@ class Trainings(db.Model):
   Class mapping table of model repositories associated to git user
   """
   username = db.Column(db.String(100), primary_key=True)
-  model = db.Column(db.String(100), primary_key=True)
+  repo = db.Column(db.String(100), db.ForeignKey(Models.repo), primary_key=True)
+  
+  model = db.relationship(Models, foreign_keys='Trainings.repo')
   
   def __repr__(self):
     return '<Model %r associated to user %r>' % (self.model, self.username)

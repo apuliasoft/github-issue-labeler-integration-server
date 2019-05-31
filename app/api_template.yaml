@@ -15,8 +15,14 @@ definitions:
         type: string
         description: Human readable status message
       next:
-        type: url
+        type: string
+        format: url
+        required: false
         description: Url to go in case of pagination or auth errors
+      username:
+        type: string
+        required: false
+        description: Username in case of logged user
 parameters:
   repoParam:
     name: repo
