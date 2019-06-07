@@ -4,6 +4,9 @@ TRAINING_TIMEOUT = 1800
 CLASSIFICATION_TIMEOUT = 1800
 CONFIDENCE_TRESHOLD = 50
 
+LOG_PATH = "/var/log/is.log"
+LOG_FORMAT = "%(asctime)s - %(pathname)s:%(lineno)d - %(levelname)s - %(message)s"
+
 GITHUB_WEBHOOK_SECRET = ""
 GITHUB_CLIENT_ID = ""
 GITHUB_CLIENT_SECRET = ""

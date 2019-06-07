@@ -451,8 +451,3 @@ def test(token):
   repo = request.args['repo']
   return jsonify(git.exists(repo, token))
   return "testato"
-
-
-@api.errorhandler(404)
-def error404(error):
-  return '<strong>api: 404 error:</strong> %s: %s' % ( request.url, error)

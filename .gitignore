@@ -11,3 +11,4 @@ ansible/*.retry
 app/config.py
 app/**/*.py[cod]
 app/private-key.pem
+app/*.rdb
