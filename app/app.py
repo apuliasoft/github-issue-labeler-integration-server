@@ -2,6 +2,7 @@
  
 from flask import Flask
 from flasgger import Swagger
+from flask_cors import CORS
 
 from openreq import OpenReq
 from github import GitApp,GitError
@@ -13,6 +14,7 @@ from api import api
 
 # initialize flask app
 app = Flask(__name__)
+CORS(app)
 app.config.from_pyfile('config.py', silent=True)
 
 # register api endpoints
