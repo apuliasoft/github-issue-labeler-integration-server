@@ -2,6 +2,7 @@
  
 from flask import Flask, request
 from flasgger import Swagger
+from flask_cors import CORS
 
 from openreq import OpenReq
 from github import GitApp,GitError
