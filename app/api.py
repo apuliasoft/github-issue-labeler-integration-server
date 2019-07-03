@@ -316,7 +316,7 @@ def check_installed(token):
       'message': 'Invalid repository'
     }), 404
   
-  return jsonify(git.isInstalled(repo))
+  return jsonify({ 'result': git.isInstalled(repo) })
 
 
 @api.route("/is-owner")
@@ -348,9 +348,9 @@ def is_owner(token):
     }), 404
   
   try:
-    return jsonify(git.getRepo(repo, token)['permissions']['admin'])
+    return jsonify({ 'result': git.getRepo(repo, token)['permissions']['admin'] })
   except GitError:
-    return jsonify(False)
+    return jsonify({ 'result': False })
 
 
 @api.route("/webhook", methods = ['GET','POST'])
