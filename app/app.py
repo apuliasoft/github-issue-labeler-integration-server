@@ -44,7 +44,8 @@ git.setup(
   app.config['GITHUB_APP_ID'], 
   app.config['GITHUB_CLIENT_ID'], 
   app.config['GITHUB_CLIENT_SECRET'], 
-  app.config['GITHUB_PRIV_KEY_PATH']
+  app.config['GITHUB_PRIV_KEY_PATH'],
+  app.config['GITHUB_LIMIT_REQUEST']
 )
 if 'GITHUB_PERSONAL_ACCESS_TOKEN' in app.config:
   git.PERSONAL_ACCESS_TOKEN = app.config['GITHUB_PERSONAL_ACCESS_TOKEN']

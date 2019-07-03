@@ -13,6 +13,7 @@ GITHUB_CLIENT_SECRET = ""
 GITHUB_APP_ID = ""
 GITHUB_PERSONAL_ACCESS_TOKEN = ""
 GITHUB_PRIV_KEY_PATH = "/app/private-key.pem" 
+GITHUB_LIMIT_REQUEST = True
 
 OPENREQ_BASEURL = "http://requirement-classifier:9402"
 
