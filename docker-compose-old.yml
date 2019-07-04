@@ -2,33 +2,31 @@ version: '3'
 
 services:
   requirement-classifier:
-    image: ciccio86/req-classifier
+    image: req-classifier
     ports:
      - '9402:9402'
      - '9403:9403'
      - '8080:8080'
   
   integration-service:
-    image: ciccio86/is
+    image: 'is'
     command: python app.py
     ports:
      - '5000:5000'
-    environment:
-     - GITHUB_PERSONAL_ACCESS_TOKEN=22177537804d2c23e766ed325bb5f91286be1aac
     volumes:
+     - ./app:/app
      - tmp_vol:/tmp/integration-service
     depends_on:
      - worker
   
   worker:
-    image: ciccio86/is
+    image: 'is'
     command: celery worker -A app:celery --loglevel=debug
     volumes:
+     - ./app:/app
      - tmp_vol:/tmp/integration-service
-    environment:
-     - GITHUB_PERSONAL_ACCESS_TOKEN=22177537804d2c23e766ed325bb5f91286be1aac
     depends_on:
-     - redis
+      - redis
   
   redis:
     image: redis
