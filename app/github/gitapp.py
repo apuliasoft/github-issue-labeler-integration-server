@@ -40,7 +40,7 @@ class GitApp:
   BASE_ENDPOINT = 'https://github.com/'
   AUTH_ENDPOINT = BASE_ENDPOINT + 'login/oauth/'
   
-  def setup(self, APP_ID, CLIENT_ID, CLIENT_SECRET, PRIV_KEY_PATH, PERSONAL_ACCESS_TOKEN=None):
+  def setup(self, APP_ID, CLIENT_ID, CLIENT_SECRET, PRIV_KEY_PATH, PERSONAL_ACCESS_TOKEN=None, GITHUB_LIMIT_REQUEST=False):
     """
     Simple handler for async instance setup
     
@@ -60,7 +60,7 @@ class GitApp:
     self.CLIENT_SECRET = CLIENT_SECRET
     self.PRIV_KEY_PATH = PRIV_KEY_PATH
     self.PERSONAL_ACCESS_TOKEN = PERSONAL_ACCESS_TOKEN
-  
+    self.GITHUB_LIMIT_REQUEST = GITHUB_LIMIT_REQUEST
   
   def _request(self, method, endpoint, resource, params = {}, headers = {}, collect_all = False, func = lambda x : x):
     """
@@ -111,10 +111,12 @@ class GitApp:
     try:
       # https://developer.github.com/v3/#pagination && https://developer.github.com/v3/guides/traversing-with-pagination/
       if collect_all:
-        # DEBUG limit to first 3 call to avoid rate limit but give enough data to compute
-        k=0
-        while 'next' in response.links.keys() and k<3:
-          k += 1
+        req_count = 0
+        while 'next' in response.links.keys() :
+          # limit to first 3 call to avoid rate limit but give enough data to compute
+          if self.GITHUB_LIMIT_REQUEST and req_count>3 :
+            break;
+          req_count += 1
           response = requests.get(response.links['next']['url'], headers = headers)
           items.extend(response.json())
       

@@ -21,7 +21,6 @@ class Trainings(db.Model):
   """
   username = db.Column(db.String(100), primary_key=True)
   repo = db.Column(db.String(100), db.ForeignKey(Models.repo), primary_key=True)
-  
   model = db.relationship(Models, foreign_keys='Trainings.repo')
   
   def __repr__(self):
@@ -36,8 +35,7 @@ class Classifications(db.Model):
   model = db.Column(db.String(100))
   classified = db.Column(db.Boolean, default=False)
   started = db.Column(db.DateTime, server_default=db.func.now())
+  completed = db.Column(db.DateTime, default=None)
   
   def __repr__(self):
     return '<Classification of %r using model %r for user %r>' % (self.repo, self.model, self.username)
-    
-    

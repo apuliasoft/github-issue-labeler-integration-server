@@ -11,6 +11,10 @@ tags:
 definitions:
   messages:
     properties:
+      result:
+        type: boolean
+        required: false
+        description: Return value
       message:
         type: string
         description: Human readable status message
