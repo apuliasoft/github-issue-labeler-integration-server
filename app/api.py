@@ -362,7 +362,7 @@ def webhook():
   ---
   """
   # check git signature in payload 
-  signature = hmac.new(bytes(current_app.config['WEBHOOK_SECRET'], 'latin-1'), request.data, hashlib.sha1).hexdigest()
+  signature = hmac.new(bytes(current_app.config['GITHUB_WEBHOOK_SECRET'], 'latin-1'), request.data, hashlib.sha1).hexdigest()
   if hmac.compare_digest(str(signature), request.headers['X-Hub-Signature'].split('=')[1]):
    
     data = request.get_json()
