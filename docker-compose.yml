@@ -15,6 +15,13 @@ services:
      - '5000:5000'
     environment:
      - GITHUB_PERSONAL_ACCESS_TOKEN=22177537804d2c23e766ed325bb5f91286be1aac
+     - GITHUB_APP_ID=26451
+     - GITHUB_CLIENT_ID=Iv1.3f10287c57717924
+     - GITHUB_CLIENT_SECRET=7db52840fa47fd6453e1641c6b5d52e68836acc0
+     - GITHUB_WEBHOOK_SECRET=49c9fd27ac1e0a5589acd6f777eacff63007d1e2
+     - OPENREQ_BASEURL=http://requirement-classifier:9402
+     - CELERY_BROKER_URL=redis://redis:6379/0
+     - GITHUB_LIMIT_REQUEST=True
     volumes:
      - tmp_vol:/tmp/integration-service
     depends_on:
@@ -27,6 +34,13 @@ services:
      - tmp_vol:/tmp/integration-service
     environment:
      - GITHUB_PERSONAL_ACCESS_TOKEN=22177537804d2c23e766ed325bb5f91286be1aac
+     - GITHUB_APP_ID=35262
+     - GITHUB_CLIENT_ID=Iv1.02a46aba7f40e24d
+     - GITHUB_CLIENT_SECRET=61b6630bacf1e9b801deb3143322919f63637fb5
+     - GITHUB_WEBHOOK_SECRET=5da226f312c132fd92280a3e81cad0adede50224
+     - OPENREQ_BASEURL=http://requirement-classifier:9402
+     - CELERY_BROKER_URL=redis://redis:6379/0
+     - GITHUB_LIMIT_REQUEST=True
     depends_on:
      - redis
   

@@ -35,7 +35,7 @@ def authorized(f):
   return decorator
 
 
-@api.route('/auth/', defaults={'next':'/'})
+@api.route('/auth/', defaults={'next':''})
 @api.route('/auth/<path:next>')
 def auth(next):
   """
