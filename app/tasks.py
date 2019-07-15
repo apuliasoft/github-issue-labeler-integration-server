@@ -76,7 +76,7 @@ def classify(repo, model, token, issues = None, batch=False):
       db.session.query(Classifications).filter(Classifications.repo==repo).update({
         'classified': True, 
         'completed': db.func.current_timestamp()
-      })
+      }, synchronize_session=False)
       db.session.commit()
   except Exception as e:
     current_app.logger.error(e, exc_info=True)
