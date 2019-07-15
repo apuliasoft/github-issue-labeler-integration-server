@@ -380,7 +380,7 @@ def webhook():
           'message': "No model associated to this repository or batch classification still in progress"
         }), 404
       
-      tasks.classify.delay(repo, classification.model, [issue])
+      tasks.classify.delay(repo, classification.model, None, [issue])
       
       return jsonify({
         'message': "Issue classified."
