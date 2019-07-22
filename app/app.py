@@ -1,6 +1,6 @@
 #!/usr/bin/python
  
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flasgger import Swagger
 from flask_cors import CORS
 
@@ -64,12 +64,16 @@ make_celery(app)
 @app.errorhandler(404)
 def error404(error):
   app.logger.warning('404 not found for %s', request.url)
-  return '<h1>404 error</h1><p>%s</p>' % error, 404
+  return jsonify({
+      'message': '404 error'
+    }), 404
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):
   app.logger.error('Unhandled Exception: %s', (e))
-  return '<h1>500 error</h1>', 500
+  return jsonify({
+      'message': '500 error'
+    }), 500
 
 if __name__ == "__main__":
   app.run(host='0.0.0.0')

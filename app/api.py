@@ -26,9 +26,10 @@ def authorized(f):
       # check for revoked access_token
       git.getUser(session['access_token'])
     except Exception:
+      next = request.args.get('next') or ''
       return jsonify({
         'message': "Unauthorized request",
-        'next': git.authorizeUrl(url_for('api.auth', _external=True))
+        'next': git.authorizeUrl(url_for('api.auth', _external=True) + next)
       }),401
     
     return f(session['access_token'], *args, **kwargs)  
@@ -48,7 +49,7 @@ def auth(next):
     session['access_token'] = token
     user = git.getUser(token)
     session['user_id'] = user['login']
-    return redirect(url_for('api.index', _external=True) + next)
+    return redirect(next or 'https://github.com')
   else: 
     return jsonify({
       'message': "Invalid authorization"
@@ -394,7 +395,26 @@ def webhook():
 
 
 # test endpoints can be removed when project is ready to production
+
+@api.route("/delete-training")
+@authorized
+def delete_training(token):
+  repo = request.args['repo']
+
+  try:
+    # delete association of model to user
+    db.session.query(Trainings).filter_by(repo=repo, username=session['user_id']).delete()
+    db.session.commit()
+  except Exception as e:
+    return jsonify({
+      'message': e.message
+    }), 500
   
+  return jsonify({
+    'message': "Model has been dissociated from your userbase."
+  })
+  
+
 @api.route("/limit")
 @authorized
 def limit(token):
