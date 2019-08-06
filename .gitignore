@@ -2,13 +2,13 @@
 Icon*
 ._*
 .dropbox
+.vscode
 
 # ansible specific
 ansible/hosts
 ansible/*.retry
 
 # flask python app specific
-app/config.py
 app/**/*.py[cod]
 app/private-key.pem
 app/*.rdb
