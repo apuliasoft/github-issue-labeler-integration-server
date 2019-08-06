@@ -1,3 +1,5 @@
+[![Maintainability](https://api.codeclimate.com/v1/badges/b2facb117b2690bc0114/maintainability)](https://codeclimate.com/github/apuliasoft/github-issue-labeler-integration-server/maintainability)
+
 # Integration Service for OpenReq classifier
 This project is a simple IS for interfacing with [OpenReq](https://github.com/OpenReqEU/requirements-classifier) requirements classifier.
 Once launched locally or deployed remotely, it let you classify issues of GIT repositories.
