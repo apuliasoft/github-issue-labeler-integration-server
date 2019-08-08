@@ -33,7 +33,7 @@ services:
     volumes:
      - tmp_vol:/tmp/integration-service
     environment:
-     - GITHUB_PERSONAL_ACCESS_TOKEN=22177537804d2c23e766ed325bb5f91286be1aac
+     - GITHUB_PERSONAL_ACCESS_TOKEN=
      - GITHUB_APP_ID=35262
      - GITHUB_CLIENT_ID=Iv1.02a46aba7f40e24d
      - GITHUB_CLIENT_SECRET=61b6630bacf1e9b801deb3143322919f63637fb5
