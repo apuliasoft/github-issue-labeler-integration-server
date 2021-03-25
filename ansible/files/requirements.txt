@@ -25,7 +25,7 @@ pycparser==2.19
 PyJWT==1.7.1
 pyrsistent==0.15.2
 pytz==2019.1
-PyYAML==5.1
+PyYAML==5.4
 redis==3.2.1
 requests==2.21.0
 six==1.12.0
