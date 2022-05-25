@@ -22,7 +22,7 @@ kombu==4.5.0
 MarkupSafe==1.1.1
 mistune==0.8.4
 pycparser==2.19
-PyJWT==1.7.1
+PyJWT==2.4.0
 pyrsistent==0.15.2
 pytz==2019.1
 PyYAML==5.1
